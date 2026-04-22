@@ -1,0 +1,10 @@
+^E:\BMP_VIEWER_CPP\BUILD\CMAKEFILES\99B27274D62869961879080D5E39B4D9\GENERATE.STAMP.RULE
+setlocal
+D:\CMake\bin\cmake.exe -SE:/bmp_viewer_cpp -BE:/bmp_viewer_cpp/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file E:/bmp_viewer_cpp/build/BMPViewerQt.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
