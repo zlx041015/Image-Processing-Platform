@@ -5,7 +5,7 @@
 #include <cstring>
 #include <vector>
 
-//定义BMP标准压缩类型，只解析这三种合法格式
+//定义BMP标准压缩类型，只解析这三种合法格式1234567
 namespace {
 constexpr uint32_t BI_RGB = 0;  //无压缩
 constexpr uint32_t BI_BITFIELDS = 3;    //R/G/B掩码
