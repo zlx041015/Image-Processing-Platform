@@ -39,7 +39,6 @@ private slots:
     void updateHoverInfo(int x, int y, QRgb rgba);
     void updateHoverOutside();
     void showPixelInfo(int x, int y, QRgb rgba);
-    void showHistogram();
     void doLinearStretch();
     void doEqualize();
     void doHistMatch();
@@ -49,6 +48,8 @@ private:
     void loadImageFiles(const QString& folder);
     void displayImage(const QString& filePath);
     void renderCurrentImage();
+    void updateHistogram();
+    void handleZoomWheel(int delta);
     bool isSupportedImageFile(const QString& filePath) const;
     QImage applyFilter(const QImage& img, const QString& filterName) const;
     QImage convolve(const QImage& img, const QVector<float>& kernel, float divisor, float bias = 0.0f) const;
@@ -71,6 +72,7 @@ private:
 
     QListWidget* m_fileList = nullptr;
     QLabel* m_infoLabel = nullptr;
+    QLabel* m_histogramLabel = nullptr;
     QLabel* m_folderLabel = nullptr;
     QLabel* m_zoomLabel = nullptr;
     QLabel* m_previewHint = nullptr;

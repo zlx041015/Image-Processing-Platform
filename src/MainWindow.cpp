@@ -39,6 +39,7 @@ void MainWindow::createUi() {
 
     m_fileList = ui->fileListWidget;
     m_infoLabel = ui->infoLabel;
+    m_histogramLabel = ui->histogramLabel;
     m_folderLabel = ui->folderLabel;
     m_zoomLabel = ui->zoomLabel;
     m_previewHint = ui->previewHintLabel;
@@ -50,7 +51,6 @@ void MainWindow::createUi() {
     connect(ui->zoomInButton, &QPushButton::clicked, this, &MainWindow::zoomIn);
     connect(ui->zoomOutButton, &QPushButton::clicked, this, &MainWindow::zoomOut);
     connect(ui->resetZoomButton, &QPushButton::clicked, this, &MainWindow::resetZoom);
-    connect(ui->histogramButton, &QPushButton::clicked, this, &MainWindow::showHistogram);
     connect(ui->linearStretchButton, &QPushButton::clicked, this, &MainWindow::doLinearStretch);
     connect(ui->equalizeButton, &QPushButton::clicked, this, &MainWindow::doEqualize);
     connect(ui->histMatchButton, &QPushButton::clicked, this, &MainWindow::doHistMatch);
@@ -60,6 +60,7 @@ void MainWindow::createUi() {
     connect(m_imageView, &ImageView::hoverPixel, this, &MainWindow::updateHoverInfo);
     connect(m_imageView, &ImageView::clickPixel, this, &MainWindow::showPixelInfo);
     connect(m_imageView, &ImageView::hoverOutside, this, &MainWindow::updateHoverOutside);
+    connect(m_imageView, &ImageView::zoomRequested, this, &MainWindow::handleZoomWheel);
 
     ui->mainSplitter->setStretchFactor(0, 0);
     ui->mainSplitter->setStretchFactor(1, 1);
@@ -261,6 +262,7 @@ void MainWindow::renderCurrentImage() {
     m_imageView->setImages(m_originalImage, m_filteredImage);
     m_imageView->setZoomFactor(m_zoom);
     m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
+    updateHistogram();
 }
 
 void MainWindow::onFilterChanged() {
@@ -500,17 +502,31 @@ int MainWindow::clampToByte(int value) {
     return std::max(0, std::min(255, value));
 }
 
-void MainWindow::showHistogram() {
+void MainWindow::updateHistogram() {
     if (m_originalImage.isNull()) {
+        if (m_histogramLabel) {
+            m_histogramLabel->setPixmap(QPixmap());
+            m_histogramLabel->setText(QStringLiteral("暂无直方图"));
+        }
         return;
     }
 
-    QPixmap hist = ImageHistTools::drawGrayHistogram(m_originalImage);
+    if (!m_histogramLabel) {
+        return;
+    }
 
-    auto* label = new QLabel();
-    label->setPixmap(hist);
-    label->setWindowTitle(QStringLiteral("灰度直方图"));
-    label->show();
+    const QImage& source = m_filteredImage.isNull() ? m_originalImage : m_filteredImage;
+    QPixmap hist = ImageHistTools::drawGrayHistogram(source, 360, 180);
+    m_histogramLabel->setPixmap(hist);
+    m_histogramLabel->setText(QString());
+}
+
+void MainWindow::handleZoomWheel(int delta) {
+    if (delta > 0) {
+        zoomIn();
+    } else if (delta < 0) {
+        zoomOut();
+    }
 }
 
 void MainWindow::doLinearStretch() {
@@ -523,6 +539,7 @@ void MainWindow::doLinearStretch() {
     m_imageView->setImages(m_originalImage, m_filteredImage);
     m_imageView->setZoomFactor(m_zoom);
     m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
+    updateHistogram();
 }
 
 void MainWindow::doEqualize() {
@@ -535,6 +552,7 @@ void MainWindow::doEqualize() {
     m_imageView->setImages(m_originalImage, m_filteredImage);
     m_imageView->setZoomFactor(m_zoom);
     m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
+    updateHistogram();
 }
 
 void MainWindow::doHistMatch() {
@@ -557,4 +575,5 @@ void MainWindow::doHistMatch() {
     m_imageView->setImages(m_originalImage, m_filteredImage);
     m_imageView->setZoomFactor(m_zoom);
     m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
+    updateHistogram();
 }

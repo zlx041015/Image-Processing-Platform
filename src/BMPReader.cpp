@@ -258,16 +258,29 @@ void BMPReader::readMasksAndPalette() {
 
     if ((m_info.compression == BI_BITFIELDS || m_info.compression == BI_ALPHABITFIELDS) &&
         (m_info.bitCount == 16 || m_info.bitCount == 32)) {
-        int remaining = static_cast<int>(m_pixelOffset) - pos;
-        if (remaining >= 12) {
+        // 某些 565 BMP 会把掩码直接写进更大的 DIB 头里（例如 52/56 字节头），
+        // 也有些文件把掩码放在 DIB 头后、像素数据前。两种布局都要兼容。
+        if (m_info.dibSize >= 52 && ensureAvailable(14 + 40, 12)) {
             m_hasMasks = true;
-            m_masks.r = readLE<uint32_t>(pos + 0);
-            m_masks.g = readLE<uint32_t>(pos + 4);
-            m_masks.b = readLE<uint32_t>(pos + 8);
-            pos += 12;
-            if (remaining >= 16) {
-                m_masks.a = readLE<uint32_t>(pos);
-                pos += 4;
+            m_masks.r = readLE<uint32_t>(14 + 40);
+            m_masks.g = readLE<uint32_t>(14 + 44);
+            m_masks.b = readLE<uint32_t>(14 + 48);
+
+            if (m_info.dibSize >= 56 && ensureAvailable(14 + 52, 4)) {
+                m_masks.a = readLE<uint32_t>(14 + 52);
+            }
+        } else {
+            int remaining = static_cast<int>(m_pixelOffset) - pos;
+            if (remaining >= 12) {
+                m_hasMasks = true;
+                m_masks.r = readLE<uint32_t>(pos + 0);
+                m_masks.g = readLE<uint32_t>(pos + 4);
+                m_masks.b = readLE<uint32_t>(pos + 8);
+                pos += 12;
+                if (remaining >= 16) {
+                    m_masks.a = readLE<uint32_t>(pos);
+                    pos += 4;
+                }
             }
         }
     }

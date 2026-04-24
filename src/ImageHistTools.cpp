@@ -8,6 +8,10 @@
 
 QPixmap ImageHistTools::drawGrayHistogram(const QImage &img, int w, int h)
 {
+    if (w <= 0 || h <= 0) {
+        return {};
+    }
+
     QImage g = img.convertToFormat(QImage::Format_Grayscale8);
     std::vector<int> hist(256, 0);
 
@@ -17,15 +21,33 @@ QPixmap ImageHistTools::drawGrayHistogram(const QImage &img, int w, int h)
     }
 
     int max = *std::max_element(hist.begin(), hist.end());
+    if (max <= 0) {
+        max = 1;
+    }
+
     QPixmap pix(w, h);
     pix.fill(Qt::white);
     QPainter pp(&pix);
-    pp.setPen(Qt::black);
 
+    const int left = 18;
+    const int right = 10;
+    const int top = 10;
+    const int bottom = 18;
+    const int plotW = std::max(1, w - left - right);
+    const int plotH = std::max(1, h - top - bottom);
+    const int baseY = h - bottom;
+
+    pp.setPen(QPen(QColor("#94a3b8"), 1));
+    pp.drawLine(left, baseY, w - right, baseY);
+    pp.drawLine(left, top, left, baseY);
+
+    pp.setPen(QPen(QColor("#1d4ed8"), 1));
     for (int i = 0; i < 256; i++) {
-        int hh = 0;
-        if (max > 0) hh = hist[i] * h / max;
-        pp.drawLine(i * w / 256, h, i * w / 256, h - hh);
+        int barH = hist[i] * plotH / max;
+        int x = left + (i * plotW) / 256;
+        int y1 = baseY;
+        int y2 = baseY - barH;
+        pp.drawLine(x, y1, x, y2);
     }
     return pix;
 }
