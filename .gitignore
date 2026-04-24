@@ -1,0 +1,15 @@
+build/
+x64/
+.vs/
+*.exe
+*.obj
+*.tlog
+*.pdb
+*.ilk
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.autogen
+CMakeFiles/
+cmake_install.cmake
+Makefile
