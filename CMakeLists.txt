@@ -13,6 +13,7 @@ add_executable(BMPViewerQt
     src/main.cpp
     src/BMPReader.cpp
     src/MainWindow.cpp
+    src/MainWindow.ui
     src/ImageView.cpp
     src/ImageHistTools.cpp
     src/ImageHistTools.h
