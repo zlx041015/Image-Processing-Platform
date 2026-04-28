@@ -3,22 +3,11 @@
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
   <property name="windowTitle">
-   <string>BMP / JPG 图片查看器（C++ / Qt 版）</string>
+   <string>医学影像处理软件</string>
   </property>
   <property name="styleSheet">
    <string notr="true">QMainWindow#MainWindow {
     background: #edf2f7;
-}
-
-QWidget#headerWidget {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #1d4ed8);
-    border-radius: 12px;
-}
-
-QLabel#titleLabel {
-    color: white;
-    font-size: 22px;
-    font-weight: 700;
 }
 
 QWidget#toolbarCard,
@@ -147,43 +136,6 @@ QListWidget::item:selected {
     <property name="spacing">
      <number>8</number>
     </property>
-    <item>
-     <widget class="QWidget" name="headerWidget">
-      <property name="minimumSize">
-       <size>
-        <width>0</width>
-        <height>64</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>16777215</width>
-        <height>64</height>
-       </size>
-      </property>
-      <layout class="QVBoxLayout" name="headerLayout">
-       <property name="leftMargin">
-        <number>18</number>
-       </property>
-       <property name="topMargin">
-        <number>10</number>
-       </property>
-       <property name="rightMargin">
-        <number>18</number>
-       </property>
-       <property name="bottomMargin">
-        <number>10</number>
-       </property>
-       <item>
-        <widget class="QLabel" name="titleLabel">
-         <property name="text">
-          <string>BMP / JPG 图片查看器</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
     <item>
      <widget class="QSplitter" name="mainSplitter">
       <property name="orientation">
