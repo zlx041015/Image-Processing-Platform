@@ -12,6 +12,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 add_executable(BMPViewerQt
     src/main.cpp
     src/BMPReader.cpp
+    src/ImageLabProcessor.cpp
     src/MainWindow.cpp
     src/MainWindow.ui
     src/ImageView.cpp
