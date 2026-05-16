@@ -1,7 +1,11 @@
-build/
+build/*
+!build/Release/
+!build/Release/**
 x64/
 .vs/
 *.exe
+!build/Release/BMPViewerQt.exe
+!installer/output/BMPViewerQt_Setup.exe
 *.obj
 *.tlog
 *.pdb

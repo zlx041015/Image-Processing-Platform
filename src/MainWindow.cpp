@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "BMPReader.h"
+#include "FourierExperimentWidget.h"
 #include "ImageHistTools.h"
 #include "ImageLabProcessor.h"
 #include "ImageView.h"
@@ -194,6 +195,9 @@ void MainWindow::createUi() {
 
         QWidget* experimentPage = createExperimentPage();
         m_mainTabs->addTab(experimentPage, QString::fromUtf8(u8"\u5b9e\u9a8c"));
+
+        auto* fourierExperimentPage = new FourierExperimentWidget(m_mainTabs);
+        m_mainTabs->addTab(fourierExperimentPage, QString::fromUtf8(u8"\u5b9e\u9a8c\u56db"));
 
         rootLayout->addWidget(themeStrip);
         rootLayout->addWidget(m_mainTabs);
