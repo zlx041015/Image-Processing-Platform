@@ -11,7 +11,6 @@ class QLineEdit;
 class QPushButton;
 class QSpinBox;
 class QDoubleSpinBox;
-class QTextEdit;
 class QResizeEvent;
 
 class FourierExperimentWidget : public QWidget {
@@ -19,14 +18,13 @@ class FourierExperimentWidget : public QWidget {
 
 public:
     explicit FourierExperimentWidget(QWidget* parent = nullptr);
+    void initializeFromDesignerUi();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private slots:
     void openImage();
-    void loadPetImage();
-    void loadFactoryImage();
     void runForwardFft();
     void runInverseFft();
     void applyIdealLowPass();
@@ -58,7 +56,6 @@ private:
         ButterworthHighPass
     };
 
-    void buildUi();
     void loadImageFromPath(const QString& filePath);
     bool ensureSpectrum();
     void applyFrequencyFilter(FrequencyFilter filter);
@@ -66,15 +63,9 @@ private:
     void setPreviewImage(QLabel* label, const QImage& image);
     void setStatus(const QString& text);
 
-    QString findSampleImage(const QString& fileName) const;
     QString describeCurrentImage() const;
 
-    static int nextPowerOfTwo(int value);
-    static int clampToByte(double value);
-    static QVector<Complex> makeCenteredSamples(const QImage& image, int paddedWidth, int paddedHeight, bool useLog);
-    static void fft1D(QVector<Complex>& data, bool inverse);
-    static void fft2D(QVector<Complex>& data, int width, int height, bool inverse);
-    static SpectrumData computeSpectrum(const QImage& image, bool useLog);
+    static SpectrumData computeSpectrum(const QImage& image, bool useLog = false);
     static QImage spectrumToImage(const SpectrumData& spectrum);
     static SpectrumData filteredSpectrum(const SpectrumData& spectrum, FrequencyFilter filter, double cutoff, int order);
     static QImage inverseToImage(const SpectrumData& spectrum);
@@ -87,7 +78,6 @@ private:
     QLabel* m_spectrumLabel = nullptr;
     QLabel* m_resultLabel = nullptr;
     QLabel* m_statusLabel = nullptr;
-    QTextEdit* m_notesEdit = nullptr;
 
     QSpinBox* m_cutoffSpin = nullptr;
     QSpinBox* m_orderSpin = nullptr;
@@ -104,4 +94,5 @@ private:
     QImage m_originalPreview;
     QImage m_spectrumPreview;
     QImage m_resultPreview;
+    bool m_uiInitialized = false;
 };

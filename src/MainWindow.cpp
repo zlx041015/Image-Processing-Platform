@@ -154,6 +154,7 @@ void MainWindow::createUi() {
     auto* rootLayout = qobject_cast<QVBoxLayout*>(centralWidget() ? centralWidget()->layout() : nullptr);
     if (rootLayout) {
         rootLayout->removeWidget(ui->mainSplitter);
+        rootLayout->removeWidget(ui->fourierExperimentPage);
 
         auto* themeStrip = new QFrame(centralWidget());
         themeStrip->setObjectName(QStringLiteral("ThemeStrip"));
@@ -196,8 +197,8 @@ void MainWindow::createUi() {
         QWidget* experimentPage = createExperimentPage();
         m_mainTabs->addTab(experimentPage, QString::fromUtf8(u8"\u5b9e\u9a8c"));
 
-        auto* fourierExperimentPage = new FourierExperimentWidget(m_mainTabs);
-        m_mainTabs->addTab(fourierExperimentPage, QString::fromUtf8(u8"\u5b9e\u9a8c\u56db"));
+        ui->fourierExperimentPage->initializeFromDesignerUi();
+        m_mainTabs->addTab(ui->fourierExperimentPage, QString::fromUtf8(u8"\u5b9e\u9a8c\u56db"));
 
         rootLayout->addWidget(themeStrip);
         rootLayout->addWidget(m_mainTabs);

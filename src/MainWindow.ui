@@ -459,6 +459,382 @@ QListWidget::item:selected {
       </widget>
      </widget>
     </item>
+    <item>
+     <widget class="FourierExperimentWidget" name="fourierExperimentPage">
+      <property name="styleSheet">
+       <string notr="true">FourierExperimentWidget#fourierExperimentPage {
+    background: #f5f8ff;
+}
+
+QFrame#fourierHeaderCard,
+QFrame#fourierControlCard,
+QFrame#fourierPreviewCard,
+QFrame#fourierNotesCard {
+    background: #ffffff;
+    border: 1px solid #d7e3f5;
+    border-radius: 12px;
+}
+
+QLabel#fourierTitle,
+QLabel#fourierNotesTitle,
+QLabel#fourierOriginalTitle,
+QLabel#fourierSpectrumTitle,
+QLabel#fourierResultTitle {
+    color: #0f172a;
+    font-weight: 700;
+}
+
+QLabel#fourierSubtitle,
+QLabel#fourierImageInfoLabel,
+QLabel#fourierStatusLabel {
+    color: #52637a;
+}
+
+QLabel#fourierOriginalLabel,
+QLabel#fourierSpectrumLabel,
+QLabel#fourierResultLabel {
+    background: #0f172a;
+    color: #dbeafe;
+    border: 1px solid #d7e3f5;
+    border-radius: 10px;
+}
+
+QLineEdit#fourierPathEdit,
+QSpinBox#fourierCutoffSpin,
+QSpinBox#fourierOrderSpin,
+QDoubleSpinBox#fourierGammaLowSpin,
+QDoubleSpinBox#fourierGammaHighSpin,
+QDoubleSpinBox#fourierHomomorphicCSpin,
+QTextEdit#fourierNotesEdit {
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid #cfdcf0;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
+QSpinBox#fourierCutoffSpin,
+QSpinBox#fourierOrderSpin,
+QDoubleSpinBox#fourierGammaLowSpin,
+QDoubleSpinBox#fourierGammaHighSpin,
+QDoubleSpinBox#fourierHomomorphicCSpin {
+    min-height: 28px;
+    padding: 6px 24px 6px 8px;
+}
+
+QPushButton#fourierOpenButton,
+QPushButton#fourierFftButton,
+QPushButton#fourierIfftButton,
+QPushButton#fourierIdealLowButton,
+QPushButton#fourierButterLowButton,
+QPushButton#fourierIdealHighButton,
+QPushButton#fourierButterHighButton,
+QPushButton#fourierHomoButton,
+QPushButton#fourierSaveButton {
+    color: #0f172a;
+    background: #f8fbff;
+    border: 1px solid #cfdcf0;
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+QPushButton#fourierOpenButton:hover,
+QPushButton#fourierFftButton:hover,
+QPushButton#fourierIfftButton:hover,
+QPushButton#fourierIdealLowButton:hover,
+QPushButton#fourierButterLowButton:hover,
+QPushButton#fourierIdealHighButton:hover,
+QPushButton#fourierButterHighButton:hover,
+QPushButton#fourierHomoButton:hover,
+QPushButton#fourierSaveButton:hover {
+    background: #e6f0ff;
+}
+
+QPushButton#fourierSaveButton:disabled {
+    color: #94a3b8;
+    background: #f1f5f9;
+}</string>
+      </property>
+      <layout class="QVBoxLayout" name="fourierRootLayout">
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <property name="spacing"><number>10</number></property>
+       <item>
+        <widget class="QScrollArea" name="fourierScrollArea">
+         <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
+         <property name="widgetResizable"><bool>true</bool></property>
+         <widget class="QWidget" name="fourierScrollContent">
+          <layout class="QVBoxLayout" name="fourierContentLayout">
+           <property name="leftMargin"><number>12</number></property>
+           <property name="topMargin"><number>12</number></property>
+           <property name="rightMargin"><number>12</number></property>
+           <property name="bottomMargin"><number>12</number></property>
+           <property name="spacing"><number>12</number></property>
+           <item>
+            <widget class="QFrame" name="fourierHeaderCard">
+             <layout class="QVBoxLayout" name="fourierHeaderLayout">
+              <property name="leftMargin"><number>16</number></property>
+              <property name="topMargin"><number>14</number></property>
+              <property name="rightMargin"><number>16</number></property>
+              <property name="bottomMargin"><number>14</number></property>
+              <property name="spacing"><number>6</number></property>
+              <item>
+               <widget class="QLabel" name="fourierTitle">
+                <property name="text"><string>实验四：图像的二维傅里叶变换及变换域滤波</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="fourierSubtitle">
+                <property name="text"><string>实现 FFT/IFFT、理想/巴特沃斯低通与高通滤波、同态滤波，并对实验图像进行频域处理。</string></property>
+                <property name="wordWrap"><bool>true</bool></property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="fourierControlCard">
+             <layout class="QGridLayout" name="fourierControlLayout">
+              <property name="leftMargin"><number>16</number></property>
+              <property name="topMargin"><number>16</number></property>
+              <property name="rightMargin"><number>16</number></property>
+              <property name="bottomMargin"><number>16</number></property>
+              <property name="horizontalSpacing"><number>12</number></property>
+              <property name="verticalSpacing"><number>10</number></property>
+              <item row="0" column="0">
+               <widget class="QPushButton" name="fourierOpenButton">
+                <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
+                <property name="text"><string>打开图像</string></property>
+               </widget>
+              </item>
+              <item row="0" column="1" colspan="7">
+               <widget class="QLineEdit" name="fourierPathEdit">
+                <property name="readOnly"><bool>true</bool></property>
+                <property name="placeholderText"><string>请选择 BMP/JPG/JPEG 图像</string></property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="fourierCutoffLabel">
+                <property name="text"><string>截止半径</string></property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSpinBox" name="fourierCutoffSpin">
+                <property name="minimumSize"><size><width>112</width><height>0</height></size></property>
+                <property name="suffix"><string> px</string></property>
+                <property name="minimum"><number>1</number></property>
+                <property name="maximum"><number>2048</number></property>
+                <property name="value"><number>40</number></property>
+               </widget>
+              </item>
+              <item row="1" column="2">
+               <widget class="QLabel" name="fourierOrderLabel">
+                <property name="text"><string>巴特沃斯阶数</string></property>
+               </widget>
+              </item>
+              <item row="1" column="3">
+               <widget class="QSpinBox" name="fourierOrderSpin">
+                <property name="minimumSize"><size><width>96</width><height>0</height></size></property>
+                <property name="minimum"><number>1</number></property>
+                <property name="maximum"><number>10</number></property>
+                <property name="value"><number>2</number></property>
+               </widget>
+              </item>
+              <item row="1" column="4">
+               <widget class="QLabel" name="fourierGammaLowLabel">
+                <property name="text"><string>γL</string></property>
+               </widget>
+              </item>
+              <item row="1" column="5">
+               <widget class="QDoubleSpinBox" name="fourierGammaLowSpin">
+                <property name="minimumSize"><size><width>112</width><height>0</height></size></property>
+                <property name="decimals"><number>2</number></property>
+                <property name="minimum"><double>0.050000000000000</double></property>
+                <property name="maximum"><double>2.000000000000000</double></property>
+                <property name="singleStep"><double>0.050000000000000</double></property>
+                <property name="value"><double>0.500000000000000</double></property>
+               </widget>
+              </item>
+              <item row="1" column="6">
+               <widget class="QLabel" name="fourierGammaHighLabel">
+                <property name="text"><string>γH</string></property>
+               </widget>
+              </item>
+              <item row="1" column="7">
+               <widget class="QDoubleSpinBox" name="fourierGammaHighSpin">
+                <property name="minimumSize"><size><width>112</width><height>0</height></size></property>
+                <property name="decimals"><number>2</number></property>
+                <property name="minimum"><double>0.100000000000000</double></property>
+                <property name="maximum"><double>5.000000000000000</double></property>
+                <property name="singleStep"><double>0.100000000000000</double></property>
+                <property name="value"><double>1.800000000000000</double></property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="fourierHomomorphicCLabel">
+                <property name="text"><string>同态 c</string></property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QDoubleSpinBox" name="fourierHomomorphicCSpin">
+                <property name="minimumSize"><size><width>112</width><height>0</height></size></property>
+                <property name="decimals"><number>2</number></property>
+                <property name="minimum"><double>0.100000000000000</double></property>
+                <property name="maximum"><double>10.000000000000000</double></property>
+                <property name="singleStep"><double>0.100000000000000</double></property>
+                <property name="value"><double>1.000000000000000</double></property>
+               </widget>
+              </item>
+              <item row="2" column="2">
+               <widget class="QPushButton" name="fourierFftButton">
+                <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
+                <property name="text"><string>FFT 频谱</string></property>
+               </widget>
+              </item>
+              <item row="2" column="3">
+               <widget class="QPushButton" name="fourierIfftButton">
+                <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
+                <property name="text"><string>IFFT 重建</string></property>
+               </widget>
+              </item>
+              <item row="2" column="4" colspan="4">
+               <widget class="QLabel" name="fourierImageInfoLabel">
+                <property name="text"><string>图像信息：未加载</string></property>
+                <property name="wordWrap"><bool>true</bool></property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QPushButton" name="fourierIdealLowButton">
+                <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
+                <property name="text"><string>理想低通</string></property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QPushButton" name="fourierButterLowButton">
+                <property name="minimumSize"><size><width>112</width><height>34</height></size></property>
+                <property name="text"><string>巴特沃斯低通</string></property>
+               </widget>
+              </item>
+              <item row="3" column="2">
+               <widget class="QPushButton" name="fourierIdealHighButton">
+                <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
+                <property name="text"><string>理想高通</string></property>
+               </widget>
+              </item>
+              <item row="3" column="3">
+               <widget class="QPushButton" name="fourierButterHighButton">
+                <property name="minimumSize"><size><width>112</width><height>34</height></size></property>
+                <property name="text"><string>巴特沃斯高通</string></property>
+               </widget>
+              </item>
+              <item row="3" column="4">
+               <widget class="QPushButton" name="fourierHomoButton">
+                <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
+                <property name="text"><string>同态滤波</string></property>
+               </widget>
+              </item>
+              <item row="3" column="5">
+               <widget class="QPushButton" name="fourierSaveButton">
+                <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
+                <property name="enabled"><bool>false</bool></property>
+                <property name="text"><string>保存结果</string></property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="fourierPreviewCard">
+             <layout class="QGridLayout" name="fourierPreviewLayout">
+              <property name="leftMargin"><number>16</number></property>
+              <property name="topMargin"><number>16</number></property>
+              <property name="rightMargin"><number>16</number></property>
+              <property name="bottomMargin"><number>16</number></property>
+              <property name="horizontalSpacing"><number>12</number></property>
+              <property name="verticalSpacing"><number>10</number></property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="fourierOriginalTitle">
+                <property name="text"><string>原图</string></property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLabel" name="fourierSpectrumTitle">
+                <property name="text"><string>频谱/滤波器频域</string></property>
+               </widget>
+              </item>
+              <item row="0" column="2">
+               <widget class="QLabel" name="fourierResultTitle">
+                <property name="text"><string>结果图像</string></property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="fourierOriginalLabel">
+                <property name="minimumSize"><size><width>280</width><height>260</height></size></property>
+                <property name="text"><string>等待图像</string></property>
+                <property name="alignment"><set>Qt::AlignCenter</set></property>
+                <property name="wordWrap"><bool>true</bool></property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QLabel" name="fourierSpectrumLabel">
+                <property name="minimumSize"><size><width>280</width><height>260</height></size></property>
+                <property name="text"><string>等待图像</string></property>
+                <property name="alignment"><set>Qt::AlignCenter</set></property>
+                <property name="wordWrap"><bool>true</bool></property>
+               </widget>
+              </item>
+              <item row="1" column="2">
+               <widget class="QLabel" name="fourierResultLabel">
+                <property name="minimumSize"><size><width>280</width><height>260</height></size></property>
+                <property name="text"><string>等待图像</string></property>
+                <property name="alignment"><set>Qt::AlignCenter</set></property>
+                <property name="wordWrap"><bool>true</bool></property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="fourierNotesCard">
+             <layout class="QVBoxLayout" name="fourierNotesLayout">
+              <property name="leftMargin"><number>16</number></property>
+              <property name="topMargin"><number>14</number></property>
+              <property name="rightMargin"><number>16</number></property>
+              <property name="bottomMargin"><number>14</number></property>
+              <property name="spacing"><number>8</number></property>
+              <item>
+               <widget class="QLabel" name="fourierNotesTitle">
+                <property name="text"><string>实验记录</string></property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QTextEdit" name="fourierNotesEdit">
+                <property name="minimumSize"><size><width>0</width><height>96</height></size></property>
+                <property name="readOnly"><bool>true</bool></property>
+                <property name="plainText"><string>1. FFT/IFFT：对图像乘以 (-1)^(x+y) 后做二维 FFT，使频谱中心移到图像中心。
+2. 理想滤波器：按距离 D 与截止半径 D0 的关系直接保留或抑制频率。
+3. 巴特沃斯滤波器：阶数越高，过渡带越陡，通常比理想滤波器振铃更弱。
+4. 同态滤波：对 log(1+I) 做频域高频增强和低频抑制，再指数反变换。</string></property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="fourierStatusLabel">
+             <property name="minimumSize"><size><width>0</width><height>26</height></size></property>
+             <property name="text"><string>状态：请加载图像后开始实验四</string></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
    </layout>
   </widget>
   <widget class="QMenuBar" name="menubar"/>
@@ -469,6 +845,12 @@ QListWidget::item:selected {
    <class>ImageView</class>
    <extends>QGraphicsView</extends>
    <header>ImageView.h</header>
+  </customwidget>
+  <customwidget>
+   <class>FourierExperimentWidget</class>
+   <extends>QWidget</extends>
+   <header>FourierExperimentWidget.h</header>
+   <container>1</container>
   </customwidget>
  </customwidgets>
  <resources/>
