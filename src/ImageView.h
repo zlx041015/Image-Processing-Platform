@@ -14,6 +14,7 @@ public:
     explicit ImageView(QWidget* parent = nullptr);
     void setImages(const QImage& original, const QImage& filtered);
     void setZoomFactor(double zoom);
+    double fitToView();
     double zoomFactor() const { return m_zoom; }
 
 signals:

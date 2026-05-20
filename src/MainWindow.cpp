@@ -12,6 +12,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QDialog>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
@@ -22,6 +23,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPixmap>
@@ -35,6 +37,7 @@
 #include <QStringList>
 #include <QSlider>
 #include <QSpinBox>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -44,7 +47,7 @@
 #include <vector>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle(QStringLiteral("BMP / JPG 图片查看器（C++ / Qt 版）"));
+    setWindowTitle(QStringLiteral("医学影像分析平台"));
     resize(1280, 800);
     setMinimumSize(1050, 680);
     setAcceptDrops(true);
@@ -57,155 +60,247 @@ void MainWindow::createUi() {
     ui = std::make_unique<Ui::MainWindow>();
     ui->setupUi(this);
 
-    m_fileList = ui->fileListWidget;
-    m_infoLabel = ui->infoLabel;
-    m_histogramLabel = ui->histogramLabel;
-    m_folderLabel = ui->folderLabel;
-    m_zoomLabel = ui->zoomLabel;
-    m_previewHint = ui->previewHintLabel;
-    m_filterCombo = ui->filterComboBox;
-    m_imageView = ui->imageView;
-    setWindowTitle(QStringLiteral("医学影像处理软件"));
+    auto* workbench = new QWidget(this);
+    setCentralWidget(workbench);
+
+    m_fileList = nullptr;
+    m_filterCombo = nullptr;
+    setWindowTitle(QStringLiteral("医学影像分析平台"));
 
     setStyleSheet(R"(
         QMainWindow, QWidget {
-            color: #162033;
-            background: #f5f8ff;
+            color: #dbe4ef;
+            background: #101722;
         }
-        QTabWidget::pane {
-            border: 1px solid #d7e3f5;
-            border-radius: 16px;
-            background: #ffffff;
+        QFrame#TopBar {
+            background: #172230;
+            border: 1px solid #263447;
+            border-radius: 8px;
         }
-        QTabBar::tab {
-            color: #0f172a;
-            background: #e8effc;
-            border: 1px solid #d7e3f5;
-            border-bottom: none;
-            border-top-left-radius: 11px;
-            border-top-right-radius: 11px;
-            padding: 9px 16px;
-            margin-right: 4px;
-        }
-        QTabBar::tab:selected {
-            color: #0f172a;
-            background: #ffffff;
-        }
-        QComboBox {
-            color: #0f172a;
-            background: #ffffff;
-        }
-        QComboBox QAbstractItemView {
-            color: #0f172a;
-            background: #ffffff;
-            selection-color: #000000;
-            selection-background-color: #dbeafe;
+        QFrame#ImagePanel {
+            background: #111827;
+            border: 1px solid #2a384c;
+            border-radius: 8px;
         }
         QLineEdit, QSpinBox, QSlider, QDoubleSpinBox {
-            color: #0f172a;
-            background: #ffffff;
+            color: #e5edf7;
+            background: #0f172a;
+            border: 1px solid #3b4b61;
+            border-radius: 5px;
+            min-height: 26px;
         }
-        QPushButton {
-            color: #0f172a;
-            background: #f8fbff;
-            border: 1px solid #cfdcf0;
-            border-radius: 9px;
-            padding: 8px 12px;
+        QPushButton, QToolButton {
+            color: #dbeafe;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 7px 11px;
         }
-        QPushButton:hover {
-            background: #e6f0ff;
+        QPushButton:hover, QToolButton:hover {
+            color: #ffffff;
+            background: #2563eb;
+            border-color: #60a5fa;
         }
-        QFrame#ThemeStrip,
-        QFrame#ThemeChip {
-            background: #ffffff;
-            border: 1px solid #d9e5f6;
-            border-radius: 14px;
+        QPushButton:pressed, QToolButton:pressed {
+            background: #1d4ed8;
+            border-color: #93c5fd;
         }
-        QLabel#ThemeLead {
-            color: #1d4ed8;
+        QPushButton:disabled, QToolButton:disabled {
+            color: #64748b;
+            background: #182233;
+            border-color: #263447;
+        }
+        QMenu {
+            color: #dbeafe;
+            background: #172230;
+            border: 1px solid #334155;
+            padding: 5px;
+        }
+        QMenu::item {
+            padding: 7px 22px;
+            border-radius: 5px;
+        }
+        QMenu::item:selected {
+            color: #ffffff;
+            background: #2563eb;
+        }
+        QToolButton::menu-indicator {
+            image: none;
+            width: 0px;
+        }
+        QLabel#PanelTitle {
+            color: #f8fafc;
             font-weight: 700;
         }
-        QLabel#ThemeText {
-            color: #53657f;
+        QLabel#MutedText {
+            color: #9fb0c6;
+        }
+        QLabel#HistogramPreview {
+            color: #9fb0c6;
+            background: #0f172a;
+            border: 1px solid #263447;
+            border-radius: 6px;
+        }
+        QDialog {
+            color: #dbe4ef;
+            background: #172230;
+        }
+        QDialog QLabel {
+            color: #dbe4ef;
         }
     )");
 
-    connect(ui->selectFolderButton, &QPushButton::clicked, this, &MainWindow::selectFolder);
-    connect(ui->openFileButton, &QPushButton::clicked, this, &MainWindow::openSingleFile);
-    connect(ui->zoomInButton, &QPushButton::clicked, this, &MainWindow::zoomIn);
-    connect(ui->zoomOutButton, &QPushButton::clicked, this, &MainWindow::zoomOut);
-    connect(ui->resetZoomButton, &QPushButton::clicked, this, &MainWindow::resetZoom);
-    connect(ui->linearStretchButton, &QPushButton::clicked, this, &MainWindow::doLinearStretch);
-    connect(ui->equalizeButton, &QPushButton::clicked, this, &MainWindow::doEqualize);
-    connect(ui->histMatchButton, &QPushButton::clicked, this, &MainWindow::doHistMatch);
+    auto* rootLayout = new QVBoxLayout(workbench);
+    rootLayout->setContentsMargins(14, 12, 14, 12);
+    rootLayout->setSpacing(10);
 
-    connect(m_fileList, &QListWidget::itemClicked, this, &MainWindow::onFileSelected);
-    connect(m_filterCombo, &QComboBox::currentTextChanged, this, &MainWindow::onFilterChanged);
+    auto* topBar = new QFrame(workbench);
+    topBar->setObjectName(QStringLiteral("TopBar"));
+    auto* topLayout = new QHBoxLayout(topBar);
+    topLayout->setContentsMargins(12, 8, 12, 8);
+    topLayout->setSpacing(8);
+
+    auto* productTitle = new QLabel(QString::fromUtf8(u8"医学影像分析平台"), topBar);
+    productTitle->setObjectName(QStringLiteral("PanelTitle"));
+    topLayout->addWidget(productTitle);
+    topLayout->addSpacing(8);
+
+    auto makeMenuButton = [this, topBar](const QString& text, QMenu* menu) {
+        auto* button = new QToolButton(topBar);
+        button->setText(text);
+        button->setPopupMode(QToolButton::InstantPopup);
+        button->setMenu(menu);
+        button->setCursor(Qt::PointingHandCursor);
+        return button;
+    };
+    auto addAction = [this](QMenu* menu, const QString& text) {
+        QAction* action = menu->addAction(text);
+        connect(action, &QAction::triggered, this, [this, text]() {
+            applyProcessingAction(text);
+        });
+    };
+
+    auto* inputMenu = new QMenu(this);
+    inputMenu->addAction(QString::fromUtf8(u8"打开影像"), this, &MainWindow::openSingleFile);
+    inputMenu->addAction(QString::fromUtf8(u8"打开文件夹"), this, &MainWindow::selectFolder);
+    inputMenu->addSeparator();
+    inputMenu->addAction(QString::fromUtf8(u8"保存结果"), this, [this]() {
+        saveImageToFile(m_filteredImage, QStringLiteral("processed_result.png"));
+    });
+
+    auto* displayMenu = new QMenu(this);
+    for (const QString& item : {QString::fromUtf8(u8"原图"), QString::fromUtf8(u8"灰度"), QString::fromUtf8(u8"反相"),
+         QString::fromUtf8(u8"二值化"), QString::fromUtf8(u8"暖色"), QString::fromUtf8(u8"冷色"),
+         QString::fromUtf8(u8"边缘增强"), QString::fromUtf8(u8"锐化")}) {
+        addAction(displayMenu, item);
+    }
+
+    auto* histMenu = new QMenu(this);
+    for (const QString& item : {QString::fromUtf8(u8"线性拉伸"), QString::fromUtf8(u8"均衡化"), QString::fromUtf8(u8"直方图匹配")}) {
+        addAction(histMenu, item);
+    }
+
+    auto* noiseMenu = new QMenu(this);
+    for (const QString& item : {QString::fromUtf8(u8"椒盐噪声"), QString::fromUtf8(u8"脉冲噪声"),
+         QString::fromUtf8(u8"均值滤波"), QString::fromUtf8(u8"中值滤波"), QString::fromUtf8(u8"最大值滤波")}) {
+        addAction(noiseMenu, item);
+    }
+
+    auto* edgeMenu = new QMenu(this);
+    for (const QString& item : {QString::fromUtf8(u8"Sobel"), QString::fromUtf8(u8"Prewitt"), QString::fromUtf8(u8"Laplacian")}) {
+        addAction(edgeMenu, item);
+    }
+
+    auto* enhanceMenu = new QMenu(this);
+    for (const QString& item : {QString::fromUtf8(u8"Laplacian 处理"), QString::fromUtf8(u8"锐化处理"),
+         QString::fromUtf8(u8"Sobel 梯度"), QString::fromUtf8(u8"均值平滑梯度"),
+         QString::fromUtf8(u8"掩膜增强"), QString::fromUtf8(u8"原图叠加掩膜"), QString::fromUtf8(u8"Gamma 变换")}) {
+        addAction(enhanceMenu, item);
+    }
+
+    auto* frequencyMenu = new QMenu(this);
+    for (const QString& item : {QString::fromUtf8(u8"FFT 频谱"), QString::fromUtf8(u8"IFFT 重建"),
+         QString::fromUtf8(u8"理想低通"), QString::fromUtf8(u8"巴特沃斯低通"),
+         QString::fromUtf8(u8"理想高通"), QString::fromUtf8(u8"巴特沃斯高通"), QString::fromUtf8(u8"同态滤波")}) {
+        addAction(frequencyMenu, item);
+    }
+
+    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"影像输入"), inputMenu));
+    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"基础显示"), displayMenu));
+    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"直方图增强"), histMenu));
+    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"噪声与滤波"), noiseMenu));
+    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"边缘结构"), edgeMenu));
+    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"图像增强"), enhanceMenu));
+    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"频域分析"), frequencyMenu));
+    topLayout->addStretch(1);
+
+    m_undoButton = new QPushButton(QString::fromUtf8(u8"撤回"), topBar);
+    m_redoButton = new QPushButton(QString::fromUtf8(u8"前进"), topBar);
+    m_resetButton = new QPushButton(QString::fromUtf8(u8"重置"), topBar);
+    m_undoButton->setCursor(Qt::PointingHandCursor);
+    m_redoButton->setCursor(Qt::PointingHandCursor);
+    m_resetButton->setCursor(Qt::PointingHandCursor);
+    topLayout->addWidget(m_undoButton);
+    topLayout->addWidget(m_redoButton);
+    topLayout->addWidget(m_resetButton);
+    rootLayout->addWidget(topBar);
+
+    auto* imageRow = new QSplitter(Qt::Horizontal, workbench);
+    imageRow->setChildrenCollapsible(false);
+    auto buildImagePanel = [this, imageRow](const QString& titleText, ImageView** viewPtr) {
+        auto* panel = new QFrame(imageRow);
+        panel->setObjectName(QStringLiteral("ImagePanel"));
+        auto* layout = new QVBoxLayout(panel);
+        layout->setContentsMargins(10, 10, 10, 10);
+        layout->setSpacing(8);
+        auto* title = new QLabel(titleText, panel);
+        title->setObjectName(QStringLiteral("PanelTitle"));
+        auto* view = new ImageView(panel);
+        view->setMinimumSize(420, 420);
+        layout->addWidget(title);
+        layout->addWidget(view, 1);
+        *viewPtr = view;
+        return panel;
+    };
+    buildImagePanel(QString::fromUtf8(u8"原始影像"), &m_imageView);
+    buildImagePanel(QString::fromUtf8(u8"处理结果"), &m_resultView);
+    imageRow->setSizes({640, 640});
+    rootLayout->addWidget(imageRow, 1);
+
+    auto* statusRow = new QHBoxLayout();
+    m_infoLabel = new QLabel(QString::fromUtf8(u8"未加载影像"), workbench);
+    m_infoLabel->setObjectName(QStringLiteral("MutedText"));
+    m_chainLabel = new QLabel(QString::fromUtf8(u8"当前处理：无"), workbench);
+    m_chainLabel->setObjectName(QStringLiteral("MutedText"));
+    m_zoomLabel = new QLabel(QStringLiteral("100%"), workbench);
+    m_zoomLabel->setObjectName(QStringLiteral("MutedText"));
+    m_histogramLabel = new QLabel(QString::fromUtf8(u8"直方图"), workbench);
+    m_histogramLabel->setObjectName(QStringLiteral("HistogramPreview"));
+    m_histogramLabel->setFixedSize(180, 80);
+    m_histogramLabel->setAlignment(Qt::AlignCenter);
+    m_folderLabel = new QLabel(workbench);
+    m_folderLabel->setVisible(false);
+    m_previewHint = nullptr;
+    statusRow->addWidget(m_infoLabel, 2);
+    statusRow->addWidget(m_chainLabel, 3);
+    statusRow->addWidget(m_histogramLabel, 0);
+    statusRow->addWidget(m_zoomLabel, 0);
+    rootLayout->addLayout(statusRow);
+
     connect(m_imageView, &ImageView::hoverPixel, this, &MainWindow::updateHoverInfo);
     connect(m_imageView, &ImageView::clickPixel, this, &MainWindow::showPixelInfo);
     connect(m_imageView, &ImageView::hoverOutside, this, &MainWindow::updateHoverOutside);
     connect(m_imageView, &ImageView::zoomRequested, this, &MainWindow::handleZoomWheel);
+    connect(m_resultView, &ImageView::hoverPixel, this, &MainWindow::updateHoverInfo);
+    connect(m_resultView, &ImageView::clickPixel, this, &MainWindow::showPixelInfo);
+    connect(m_resultView, &ImageView::hoverOutside, this, &MainWindow::updateHoverOutside);
+    connect(m_resultView, &ImageView::zoomRequested, this, &MainWindow::handleZoomWheel);
+    connect(m_undoButton, &QPushButton::clicked, this, &MainWindow::undoProcessing);
+    connect(m_redoButton, &QPushButton::clicked, this, &MainWindow::redoProcessing);
+    connect(m_resetButton, &QPushButton::clicked, this, &MainWindow::resetProcessing);
 
-    ui->mainSplitter->setStretchFactor(0, 0);
-    ui->mainSplitter->setStretchFactor(1, 1);
-    ui->mainSplitter->setSizes({420, 980});
-    ui->leftInnerSplitter->setSizes({520, 180});
-
-    auto* rootLayout = qobject_cast<QVBoxLayout*>(centralWidget() ? centralWidget()->layout() : nullptr);
-    if (rootLayout) {
-        rootLayout->removeWidget(ui->mainSplitter);
-        rootLayout->removeWidget(ui->fourierExperimentPage);
-
-        auto* themeStrip = new QFrame(centralWidget());
-        themeStrip->setObjectName(QStringLiteral("ThemeStrip"));
-        themeStrip->setMinimumHeight(56);
-        themeStrip->setMaximumHeight(56);
-        auto* themeLayout = new QHBoxLayout(themeStrip);
-        themeLayout->setContentsMargins(16, 8, 16, 8);
-        themeLayout->setSpacing(10);
-
-        auto makeThemeChip = [themeStrip](const QString& lead, const QString& text) {
-            auto* chip = new QFrame(themeStrip);
-            chip->setObjectName(QStringLiteral("ThemeChip"));
-            auto* layout = new QVBoxLayout(chip);
-            layout->setContentsMargins(12, 6, 12, 6);
-            layout->setSpacing(0);
-            auto* leadLabel = new QLabel(lead, chip);
-            leadLabel->setObjectName(QStringLiteral("ThemeLead"));
-            auto* textLabel = new QLabel(text, chip);
-            textLabel->setObjectName(QStringLiteral("ThemeText"));
-            layout->addWidget(leadLabel);
-            layout->addWidget(textLabel);
-            return chip;
-        };
-
-        themeLayout->addWidget(makeThemeChip(QStringLiteral("医学影像"), QStringLiteral("查看、实验、增强一体化")));
-        themeLayout->addWidget(makeThemeChip(QStringLiteral("当前模式"), QStringLiteral("实验页面按需切换")));
-        themeLayout->addWidget(makeThemeChip(QStringLiteral("输入支持"), QStringLiteral("BMP / JPG / JPEG")));
-        themeLayout->addStretch(1);
-
-        m_mainTabs = new QTabWidget(centralWidget());
-        m_mainTabs->setObjectName(QStringLiteral("labMainTabWidget"));
-
-        auto* viewerPage = new QWidget(m_mainTabs);
-        auto* viewerLayout = new QVBoxLayout(viewerPage);
-        viewerLayout->setContentsMargins(0, 0, 0, 0);
-        viewerLayout->setSpacing(0);
-        viewerLayout->addWidget(ui->mainSplitter);
-        m_mainTabs->addTab(viewerPage, QString::fromUtf8(u8"\u67e5\u770b\u5668"));
-
-        QWidget* experimentPage = createExperimentPage();
-        m_mainTabs->addTab(experimentPage, QString::fromUtf8(u8"\u5b9e\u9a8c"));
-
-        ui->fourierExperimentPage->initializeFromDesignerUi();
-        m_mainTabs->addTab(ui->fourierExperimentPage, QString::fromUtf8(u8"\u5b9e\u9a8c\u56db"));
-
-        rootLayout->addWidget(themeStrip);
-        rootLayout->addWidget(m_mainTabs);
-        setWindowTitle(QStringLiteral("医学影像处理软件"));
-    }
-
-    statusBar()->showMessage(QStringLiteral("状态：就绪"));
+    refreshWorkbenchImages();
+    updateProcessingStatus(QString::fromUtf8(u8"请选择影像"));
 }
 
 QWidget* MainWindow::createExperimentPage() {
@@ -221,9 +316,9 @@ QWidget* MainWindow::createExperimentPage() {
     auto* titleLayout = new QVBoxLayout(titleCard);
     titleLayout->setContentsMargins(16, 16, 16, 16);
     titleLayout->setSpacing(4);
-    auto* title = new QLabel(QString::fromUtf8(u8"实验"), titleCard);
+    auto* title = new QLabel(QString::fromUtf8(u8"功能分析"), titleCard);
     title->setObjectName("SectionTitle");
-    auto* subtitle = new QLabel(QString::fromUtf8(u8"左侧选择实验，右侧加载对应界面框架"), titleCard);
+    auto* subtitle = new QLabel(QString::fromUtf8(u8"左侧选择功能模块，右侧加载对应处理界面"), titleCard);
     subtitle->setObjectName("SmallLabel");
     titleLayout->addWidget(title);
     titleLayout->addWidget(subtitle);
@@ -241,9 +336,9 @@ QWidget* MainWindow::createExperimentPage() {
         badge->setObjectName(QStringLiteral("ThemeBadge"));
         return badge;
     };
-    themeLayout->addWidget(makeThemeBadge(QStringLiteral("噪声")));
-    themeLayout->addWidget(makeThemeBadge(QStringLiteral("边缘")));
-    themeLayout->addWidget(makeThemeBadge(QStringLiteral("增强")));
+    themeLayout->addWidget(makeThemeBadge(QStringLiteral("噪声抑制")));
+    themeLayout->addWidget(makeThemeBadge(QStringLiteral("边缘分析")));
+    themeLayout->addWidget(makeThemeBadge(QStringLiteral("图像增强")));
     themeLayout->addStretch(1);
 
     auto* body = new QFrame(page);
@@ -260,15 +355,15 @@ QWidget* MainWindow::createExperimentPage() {
     auto* leftLayout = new QVBoxLayout(leftPane);
     leftLayout->setContentsMargins(12, 12, 12, 12);
     leftLayout->setSpacing(8);
-    auto* leftTitle = new QLabel(QString::fromUtf8(u8"实验选择"), leftPane);
+    auto* leftTitle = new QLabel(QString::fromUtf8(u8"功能模块"), leftPane);
     leftTitle->setObjectName("SectionTitle");
     leftLayout->addWidget(leftTitle);
 
     m_experimentList = new QListWidget(leftPane);
     m_experimentList->setObjectName(QStringLiteral("labExperimentList"));
-    m_experimentList->addItem(QString::fromUtf8(u8"1. 噪声添加与去噪"));
-    m_experimentList->addItem(QString::fromUtf8(u8"2. 边缘检测"));
-    m_experimentList->addItem(QString::fromUtf8(u8"3. 图像增强综合实验"));
+    m_experimentList->addItem(QString::fromUtf8(u8"噪声建模与抑制"));
+    m_experimentList->addItem(QString::fromUtf8(u8"边缘结构分析"));
+    m_experimentList->addItem(QString::fromUtf8(u8"图像增强处理"));
     leftLayout->addWidget(m_experimentList, 1);
 
     auto* rightPane = new QFrame(splitter);
@@ -276,7 +371,7 @@ QWidget* MainWindow::createExperimentPage() {
     auto* rightLayout = new QVBoxLayout(rightPane);
     rightLayout->setContentsMargins(12, 12, 12, 12);
     rightLayout->setSpacing(8);
-    auto* rightTitle = new QLabel(QString::fromUtf8(u8"实验主显示区"), rightPane);
+    auto* rightTitle = new QLabel(QString::fromUtf8(u8"处理工作区"), rightPane);
     rightTitle->setObjectName("SectionTitle");
     rightLayout->addWidget(rightTitle);
 
@@ -286,7 +381,7 @@ QWidget* MainWindow::createExperimentPage() {
     auto* emptyPage = new QWidget(m_experimentStackedWidget);
     auto* emptyLayout = new QVBoxLayout(emptyPage);
     emptyLayout->addStretch(1);
-    auto* emptyHint = new QLabel(QString::fromUtf8(u8"请选择左侧实验项目"), emptyPage);
+    auto* emptyHint = new QLabel(QString::fromUtf8(u8"请选择左侧功能模块"), emptyPage);
     emptyHint->setAlignment(Qt::AlignCenter);
     emptyHint->setObjectName("SmallLabel");
     emptyLayout->addWidget(emptyHint);
@@ -306,7 +401,7 @@ QWidget* MainWindow::createExperimentPage() {
     bodyLayout->addWidget(splitter, 1);
     rootLayout->addWidget(body, 1);
 
-    m_experimentStatusLabel = new QLabel(QString::fromUtf8(u8"状态：未选择实验"), page);
+    m_experimentStatusLabel = new QLabel(QString::fromUtf8(u8"状态：未选择功能模块"), page);
     m_experimentStatusLabel->setObjectName("SmallLabel");
     m_experimentStatusLabel->setMinimumHeight(28);
     rootLayout->addWidget(m_experimentStatusLabel);
@@ -325,8 +420,8 @@ void MainWindow::onExperimentSelected(int row) {
 
     if (row < 0) {
         m_experimentStackedWidget->setCurrentIndex(0);
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"\u72b6\u6001\uff1a\u672a\u9009\u62e9\u5b9e\u9a8c"));
-        statusBar()->showMessage(QString::fromUtf8(u8"\u5df2\u79fb\u81f3\u5b9e\u9a8c\u9875\u9762\u00b7\u8bf7\u9009\u62e9\u5de6\u4fa7\u5b9e\u9a8c"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：未选择功能模块"));
+        statusBar()->showMessage(QString::fromUtf8(u8"已进入空间域分析·请选择左侧功能模块"));
         return;
     }
 
@@ -337,13 +432,13 @@ void MainWindow::onExperimentSelected(int row) {
 
     m_experimentStackedWidget->setCurrentIndex(pageMap[row]);
     const QStringList names = {
-        QString::fromUtf8(u8"\u566a\u58f0\u6dfb\u52a0\u4e0e\u53bb\u566a"),
-        QString::fromUtf8(u8"\u8fb9\u7f18\u68c0\u6d4b"),
-        QString::fromUtf8(u8"\u56fe\u50cf\u589e\u5f3a\u7efc\u5408\u5b9e\u9a8c")
+        QString::fromUtf8(u8"噪声建模与抑制"),
+        QString::fromUtf8(u8"边缘结构分析"),
+        QString::fromUtf8(u8"图像增强处理")
     };
     const QString name = (row >= 0 && row < names.size()) ? names[row] : QString();
     m_experimentStatusLabel->setText(QString::fromUtf8(u8"\u72b6\u6001\uff1a\u5df2\u9009\u62e9 ") + name);
-    statusBar()->showMessage(QString::fromUtf8(u8"\u5f53\u524d\u5b9e\u9a8c\uff1a") + name + QString::fromUtf8(u8" \u00b7 \u52a0\u8f7d\u5bf9\u5e94\u754c\u9762\u6846\u67b6"));
+    statusBar()->showMessage(QString::fromUtf8(u8"当前功能：") + name + QString::fromUtf8(u8" · 已加载处理工作区"));
 }
 
 QWidget* MainWindow::createNoiseExperimentPage() {
@@ -361,10 +456,10 @@ QWidget* MainWindow::createNoiseExperimentPage() {
     controlLayout->setHorizontalSpacing(12);
     controlLayout->setVerticalSpacing(10);
 
-    m_noiseLoadButton = new QPushButton(QString::fromUtf8(u8"选择BMP图像"), controlCard);
+    m_noiseLoadButton = new QPushButton(QString::fromUtf8(u8"选择影像"), controlCard);
     m_noiseInputPathEdit = new QLineEdit(controlCard);
     m_noiseInputPathEdit->setReadOnly(true);
-    m_noiseInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择一张BMP灰度图像"));
+    m_noiseInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择一张灰度影像"));
 
     m_noiseTypeCombo = new QComboBox(controlCard);
     m_noiseTypeCombo->addItems({
@@ -476,10 +571,10 @@ QWidget* MainWindow::createEdgeExperimentPage() {
     controlLayout->setHorizontalSpacing(12);
     controlLayout->setVerticalSpacing(10);
 
-    m_edgeLoadButton = new QPushButton(QString::fromUtf8(u8"选择BMP图像"), controlCard);
+    m_edgeLoadButton = new QPushButton(QString::fromUtf8(u8"选择影像"), controlCard);
     m_edgeInputPathEdit = new QLineEdit(controlCard);
     m_edgeInputPathEdit->setReadOnly(true);
-    m_edgeInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择一张灰度图像"));
+    m_edgeInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择一张灰度影像"));
 
     m_edgeTypeCombo = new QComboBox(controlCard);
     m_edgeTypeCombo->addItems({
@@ -582,10 +677,10 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     controlLayout->setHorizontalSpacing(12);
     controlLayout->setVerticalSpacing(10);
 
-    m_enhancementLoadButton = new QPushButton(QString::fromUtf8(u8"选择BMP图像"), controlCard);
+    m_enhancementLoadButton = new QPushButton(QString::fromUtf8(u8"选择影像"), controlCard);
     m_enhancementInputPathEdit = new QLineEdit(controlCard);
     m_enhancementInputPathEdit->setReadOnly(true);
-    m_enhancementInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择灰度图像作为增强输入"));
+    m_enhancementInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择灰度影像作为增强输入"));
 
     m_enhancementStartButton = new QPushButton(QString::fromUtf8(u8"开始增强"), controlCard);
     m_enhancementStepButton = new QPushButton(QString::fromUtf8(u8"分步预览"), controlCard);
@@ -638,7 +733,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     infoCard->setObjectName("Card");
     auto* infoLayout = new QVBoxLayout(infoCard);
     infoLayout->setContentsMargins(16, 14, 16, 14);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"步骤说明：请选择图像并开始增强。"), infoCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强。"), infoCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     infoLayout->addWidget(m_enhancementInfoLabel);
@@ -660,7 +755,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     m_enhancementDetailBadgeLabel = new QLabel(QString::fromUtf8(u8"第1步"), detailCard);
     m_enhancementDetailBadgeLabel->setObjectName(QStringLiteral("ThemeBadge"));
     detailTop->addWidget(m_enhancementDetailBadgeLabel, 0, Qt::AlignLeft);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"步骤说明：请选择图像并开始增强。"), detailCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强。"), detailCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     detailTop->addWidget(m_enhancementInfoLabel, 1);
@@ -699,10 +794,10 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     controlLayout->setHorizontalSpacing(12);
     controlLayout->setVerticalSpacing(10);
 
-    m_enhancementLoadButton = new QPushButton(QString::fromUtf8(u8"选择BMP图像"), controlCard);
+    m_enhancementLoadButton = new QPushButton(QString::fromUtf8(u8"选择影像"), controlCard);
     m_enhancementInputPathEdit = new QLineEdit(controlCard);
     m_enhancementInputPathEdit->setReadOnly(true);
-    m_enhancementInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择灰度图像作为增强输入"));
+    m_enhancementInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择灰度影像作为增强输入"));
 
     m_enhancementStartButton = new QPushButton(QString::fromUtf8(u8"开始增强"), controlCard);
     m_enhancementStepButton = new QPushButton(QString::fromUtf8(u8"分布预览"), controlCard);
@@ -746,7 +841,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     infoCard->setObjectName("Card");
     auto* infoLayout = new QVBoxLayout(infoCard);
     infoLayout->setContentsMargins(16, 12, 16, 12);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"步骤说明：请选择图像并开始增强。"), infoCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强。"), infoCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     infoLayout->addWidget(m_enhancementInfoLabel);
@@ -1020,7 +1115,7 @@ QImage MainWindow::maxFilter(const QImage& img, int kernelSize) const {
 void MainWindow::loadNoiseExperimentImage() {
     const QString filePath = QFileDialog::getOpenFileName(
         this,
-        QString::fromUtf8(u8"选择BMP图像"),
+        QString::fromUtf8(u8"选择影像"),
         QString(),
         QString::fromUtf8(u8"图像文件 (*.bmp *.jpg *.jpeg);;所有文件 (*.*)")
     );
@@ -1044,14 +1139,14 @@ void MainWindow::loadNoiseExperimentImage() {
     }
     updateNoiseExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载实验输入图像"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载输入图像"));
     }
-    statusBar()->showMessage(QString::fromUtf8(u8"实验输入图像已加载：") + QFileInfo(filePath).fileName());
+    statusBar()->showMessage(QString::fromUtf8(u8"输入图像已加载：") + QFileInfo(filePath).fileName());
 }
 
 void MainWindow::addNoiseToExperiment() {
     if (m_noiseSourceImage.isNull()) {
-        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载实验输入图像"));
+        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载输入图像"));
         return;
     }
 
@@ -1073,7 +1168,7 @@ void MainWindow::addNoiseToExperiment() {
 
 void MainWindow::applyNoiseFilterToExperiment() {
     if (m_noiseSourceImage.isNull()) {
-        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载实验输入图像"));
+        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载输入图像"));
         return;
     }
 
@@ -1115,19 +1210,19 @@ void MainWindow::resetNoiseExperiment() {
     }
     updateNoiseExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已重置实验"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：噪声处理已重置"));
     }
-    statusBar()->showMessage(QString::fromUtf8(u8"实验1已重置"));
+    statusBar()->showMessage(QString::fromUtf8(u8"噪声处理已重置"));
 }
 void MainWindow::saveNoiseExperimentResult() {
     if (m_noiseSourceImage.isNull() && m_noiseNoisyImage.isNull() && m_noiseDenoisedImage.isNull()) {
-        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"当前没有可保存的噪声实验图像"));
+        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"当前没有可保存的噪声处理图像"));
         return;
     }
 
     QMessageBox chooser(this);
     chooser.setWindowTitle(QString::fromUtf8(u8"选择保存结果"));
-    chooser.setText(QString::fromUtf8(u8"请选择要保存的噪声实验结果图像"));
+    chooser.setText(QString::fromUtf8(u8"请选择要保存的噪声处理结果图像"));
     auto* noisyButton = chooser.addButton(QString::fromUtf8(u8"保存加噪图"), QMessageBox::AcceptRole);
     auto* denoisedButton = chooser.addButton(QString::fromUtf8(u8"保存去噪图"), QMessageBox::AcceptRole);
     chooser.addButton(QString::fromUtf8(u8"取消"), QMessageBox::RejectRole);
@@ -1173,7 +1268,7 @@ void MainWindow::onExperimentNoiseControlsChanged() {
 void MainWindow::loadEdgeExperimentImage() {
     const QString filePath = QFileDialog::getOpenFileName(
         this,
-        QString::fromUtf8(u8"选择BMP图像"),
+        QString::fromUtf8(u8"选择影像"),
         QString(),
         QString::fromUtf8(u8"图像文件 (*.bmp *.jpg *.jpeg);;所有文件 (*.*)")
     );
@@ -1357,7 +1452,7 @@ QImage MainWindow::laplacianEdgeDetect(const QImage& img, int kernelSize, int th
 
 void MainWindow::applyEdgeDetectionToExperiment() {
     if (m_edgeSourceImage.isNull()) {
-        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载实验输入图像"));
+        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载输入图像"));
         return;
     }
 
@@ -1405,9 +1500,9 @@ void MainWindow::resetEdgeExperiment() {
     }
     updateEdgeExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已重置边缘检测实验"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：边缘分析已重置"));
     }
-    statusBar()->showMessage(QString::fromUtf8(u8"边缘检测实验已重置"));
+    statusBar()->showMessage(QString::fromUtf8(u8"边缘分析已重置"));
 }
 void MainWindow::saveEdgeExperimentResult() {
     const QImage image = !m_edgeResultImage.isNull() ? m_edgeResultImage : m_edgeSourceImage;
@@ -1426,7 +1521,7 @@ void MainWindow::onExperimentEdgeControlsChanged() {
 void MainWindow::loadEnhancementExperimentImage() {
     const QString filePath = QFileDialog::getOpenFileName(
         this,
-        QString::fromUtf8(u8"选择BMP图像"),
+        QString::fromUtf8(u8"选择影像"),
         QString(),
         QString::fromUtf8(u8"图像文件 (*.bmp *.jpg *.jpeg);;所有文件 (*.*)")
     );
@@ -1452,12 +1547,12 @@ void MainWindow::loadEnhancementExperimentImage() {
     }
     updateEnhancementExperimentPreview();
     if (m_enhancementInfoLabel) {
-        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：图像已加载，可以开始执行增强流程。"));
+        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：图像已加载，可以开始执行增强流程。"));
     }
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载图像增强实验输入图像"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载图像增强输入图像"));
     }
-    statusBar()->showMessage(QString::fromUtf8(u8"图像增强实验输入图像已加载：") + QFileInfo(filePath).fileName());
+    statusBar()->showMessage(QString::fromUtf8(u8"图像增强输入图像已加载：") + QFileInfo(filePath).fileName());
 }
 
 QImage MainWindow::step1_originalImage(const QImage& img) const {
@@ -1616,7 +1711,7 @@ QImage MainWindow::step8_gammaTransform(const QImage& enhanced, double gamma) co
 
 void MainWindow::startEnhancementExperiment() {
     if (m_enhancementSourceImage.isNull()) {
-        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载实验输入图像"));
+        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载输入图像"));
         return;
     }
 
@@ -1632,23 +1727,23 @@ void MainWindow::startEnhancementExperiment() {
 
     updateEnhancementExperimentPreview();
     if (m_enhancementInfoLabel) {
-        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：已完成 8 步图像增强流程，可点击任意步骤查看对应中间结果。"));
+        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已完成 8 步图像增强流程，可点击任意步骤查看对应中间结果。"));
     }
     if (m_experimentStatusLabel) {
         m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：图像增强流程已完成"));
     }
-    statusBar()->showMessage(QString::fromUtf8(u8"图像增强综合实验已完成"));
+    statusBar()->showMessage(QString::fromUtf8(u8"图像增强处理已完成"));
 }
 
 void MainWindow::stepEnhancementExperiment() {
     if (m_enhancementSourceImage.isNull()) {
-        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载实验输入图像"));
+        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载输入图像"));
         return;
     }
 
     if (m_enhancementPreviewStep >= 8) {
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：全部步骤已完成，可重新开始或重置。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：全部步骤已完成，可重新开始或重置。"));
         }
         statusBar()->showMessage(QString::fromUtf8(u8"图像增强步骤已全部完成"));
         return;
@@ -1658,49 +1753,49 @@ void MainWindow::stepEnhancementExperiment() {
     case 0:
         m_enhancementStep1Image = ImageLabProcessor::step1_originalImage(m_enhancementSourceImage);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：步骤1，显示并缓存原图像。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤1，显示并缓存原图像。"));
         }
         break;
     case 1:
         m_enhancementStep2Image = ImageLabProcessor::step2_laplacianProcess(m_enhancementStep1Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：步骤2，对原图像进行拉普拉斯处理，提取高频细节。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤2，对原图像进行拉普拉斯处理，提取高频细节。"));
         }
         break;
     case 2:
         m_enhancementStep3Image = ImageLabProcessor::step3_sharpenImage(m_enhancementStep1Image, m_enhancementStep2Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：步骤3，将原图像与拉普拉斯结果相加，形成锐化图像。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤3，将原图像与拉普拉斯结果相加，形成锐化图像。"));
         }
         break;
     case 3:
         m_enhancementStep4Image = ImageLabProcessor::step4_sobelProcess(m_enhancementStep1Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：步骤4，对原图像应用 Sobel 算子，提取梯度信息。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤4，对原图像应用 Sobel 算子，提取梯度信息。"));
         }
         break;
     case 4:
         m_enhancementStep5Image = ImageLabProcessor::step5_meanFilterGradient(m_enhancementStep4Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：步骤5，对 Sobel 结果进行均值滤波，得到平滑梯度图像。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤5，对 Sobel 结果进行均值滤波，得到平滑梯度图像。"));
         }
         break;
     case 5:
         m_enhancementStep6Image = ImageLabProcessor::step6_maskImage(m_enhancementStep3Image, m_enhancementStep5Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：步骤6，将锐化图像与平滑梯度图像相乘，生成掩膜。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤6，将锐化图像与平滑梯度图像相乘，生成掩膜。"));
         }
         break;
     case 6:
         m_enhancementStep7Image = ImageLabProcessor::step7_addOriginalAndMask(m_enhancementStep1Image, m_enhancementStep6Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：步骤7，将原图像与掩膜求和，得到增强图像。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤7，将原图像与掩膜求和，得到增强图像。"));
         }
         break;
     case 7:
         m_enhancementStep8Image = ImageLabProcessor::step8_gammaTransform(m_enhancementStep7Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：步骤8，对增强图像进行伽马变换，优化对比度。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤8，对增强图像进行伽马变换，优化对比度。"));
         }
         break;
     default:
@@ -1712,7 +1807,7 @@ void MainWindow::stepEnhancementExperiment() {
     if (m_experimentStatusLabel) {
         m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已执行增强步骤 ") + QString::number(m_enhancementPreviewStep));
     }
-    statusBar()->showMessage(QString::fromUtf8(u8"图像增强实验步骤已更新"));
+    statusBar()->showMessage(QString::fromUtf8(u8"图像增强处理步骤已更新"));
 }
 
 void MainWindow::resetEnhancementExperiment() {
@@ -1732,12 +1827,12 @@ void MainWindow::resetEnhancementExperiment() {
     }
     updateEnhancementExperimentPreview();
     if (m_enhancementInfoLabel) {
-        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：已重置，请重新加载图像。"));
+        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已重置，请重新加载图像。"));
     }
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：图像增强实验已重置"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：图像增强处理已重置"));
     }
-    statusBar()->showMessage(QString::fromUtf8(u8"图像增强综合实验已重置"));
+    statusBar()->showMessage(QString::fromUtf8(u8"图像增强处理已重置"));
 }
 void MainWindow::saveEnhancementExperimentResult() {
     const QImage image = !m_enhancementStep8Image.isNull()
@@ -1751,18 +1846,18 @@ void MainWindow::updateEnhancementExperimentPreview() {
     updateExperimentImageLabel(m_enhancementFinalLabel, m_enhancementStep8Image.isNull() ? m_enhancementStep7Image : m_enhancementStep8Image);
     if (m_enhancementInfoLabel) {
         if (!m_enhancementStep8Image.isNull()) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：图像增强流程已完成，左侧显示原图，右侧显示最终结果。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：图像增强流程已完成，左侧显示原图，右侧显示最终结果。"));
         } else if (!m_enhancementStep1Image.isNull()) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：已载入输入图像，可点击“开始增强”或“分布预览”。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已载入输入图像，可点击“开始增强”或“分布预览”。"));
         } else {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"步骤说明：请选择图像并开始增强。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：请选择图像并开始增强。"));
         }
     }
 }
 
 void MainWindow::showEnhancementPreviewDialog() {
     if (m_enhancementSourceImage.isNull()) {
-        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载实验输入图像"));
+        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载输入图像"));
         return;
     }
 
@@ -1902,12 +1997,15 @@ void MainWindow::dropEvent(QDropEvent* event) {
 
         QFileInfo info(filePath);
         m_currentFolder = info.absolutePath();
-        m_folderLabel->setText(QStringLiteral("当前文件夹：") + m_currentFolder);
+        if (m_folderLabel) {
+            m_folderLabel->setText(QStringLiteral("当前文件夹：") + m_currentFolder);
+        }
+        if (m_fileList) {
         loadImageFiles(m_currentFolder);
-
-        QList<QListWidgetItem*> items = m_fileList->findItems(info.fileName(), Qt::MatchExactly);
-        if (!items.isEmpty()) {
-            m_fileList->setCurrentItem(items.first());
+            QList<QListWidgetItem*> items = m_fileList->findItems(info.fileName(), Qt::MatchExactly);
+            if (!items.isEmpty()) {
+                m_fileList->setCurrentItem(items.first());
+            }
         }
 
         displayImage(filePath);
@@ -1935,8 +2033,21 @@ void MainWindow::selectFolder() {
     }
 
     m_currentFolder = folder;
-    m_folderLabel->setText(QStringLiteral("当前文件夹：") + folder);
+    if (m_folderLabel) {
+        m_folderLabel->setText(QStringLiteral("当前文件夹：") + folder);
+    }
     loadImageFiles(folder);
+    if (!m_fileList) {
+        QDir dir(folder);
+        QStringList files = dir.entryList(
+            {"*.bmp", "*.BMP", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG"},
+            QDir::Files,
+            QDir::Name
+        );
+        if (!files.isEmpty()) {
+            displayImage(dir.filePath(files.first()));
+        }
+    }
 }
 
 void MainWindow::openSingleFile() {
@@ -1952,19 +2063,24 @@ void MainWindow::openSingleFile() {
 
     QFileInfo info(filePath);
     m_currentFolder = info.absolutePath();
-    m_folderLabel->setText(QStringLiteral("当前文件夹：") + m_currentFolder);
-    loadImageFiles(m_currentFolder);
-
-    QList<QListWidgetItem*> items = m_fileList->findItems(info.fileName(), Qt::MatchExactly);
-    if (!items.isEmpty()) {
-        m_fileList->setCurrentItem(items.first());
+    if (m_folderLabel) {
+        m_folderLabel->setText(QStringLiteral("当前文件夹：") + m_currentFolder);
+    }
+    if (m_fileList) {
+        loadImageFiles(m_currentFolder);
+        QList<QListWidgetItem*> items = m_fileList->findItems(info.fileName(), Qt::MatchExactly);
+        if (!items.isEmpty()) {
+            m_fileList->setCurrentItem(items.first());
+        }
     }
 
     displayImage(filePath);
 }
 
 void MainWindow::loadImageFiles(const QString& folder) {
-    m_fileList->clear();
+    if (m_fileList) {
+        m_fileList->clear();
+    }
 
     QDir dir(folder);
     QStringList files = dir.entryList(
@@ -1974,12 +2090,15 @@ void MainWindow::loadImageFiles(const QString& folder) {
     );
 
     for (const auto& f : files) {
-        m_fileList->addItem(f);
+        if (m_fileList) {
+            m_fileList->addItem(f);
+        }
     }
 
     statusBar()->showMessage(QStringLiteral("状态：在文件夹中找到 %1 个支持的图像文件").arg(files.size()));
     if (files.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("该文件夹中没有 BMP / JPG / JPEG 文件"));
+        return;
     }
 }
 
@@ -2034,6 +2153,12 @@ void MainWindow::displayImage(const QString& filePath) {
     m_currentFile = filePath;
     m_originalImage = image;
     m_zoom = 1.0;
+    m_fitOnNextRefresh = true;
+    m_resultHistory.clear();
+    m_chainHistory.clear();
+    m_processingChain.clear();
+    m_historyIndex = -1;
+    m_frequencyIfftSource = {};
 
     QString compressionText = (suffix == "bmp")
         ? QString::number(m_currentCompression)
@@ -2050,7 +2175,8 @@ void MainWindow::displayImage(const QString& filePath) {
             .arg(static_cast<long long>(m_currentWidth) * m_currentHeight)
     );
 
-    renderCurrentImage();
+    refreshWorkbenchImages();
+    updateProcessingStatus(QString::fromUtf8(u8"影像已加载"));
     statusBar()->showMessage(QStringLiteral("状态：已加载 %1").arg(QFileInfo(filePath).fileName()));
 }
 
@@ -2059,11 +2185,10 @@ void MainWindow::renderCurrentImage() {
         return;
     }
 
-    m_filteredImage = applyFilter(m_originalImage, m_filterCombo->currentText());
-    m_imageView->setImages(m_originalImage, m_filteredImage);
-    m_imageView->setZoomFactor(m_zoom);
-    m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
-    updateHistogram();
+    if (m_filterCombo) {
+        m_filteredImage = applyFilter(m_originalImage, m_filterCombo->currentText());
+    }
+    refreshWorkbenchImages();
 }
 
 void MainWindow::onFilterChanged() {
@@ -2082,8 +2207,7 @@ void MainWindow::zoomIn() {
     double newZoom = qRound((m_zoom + m_zoomStep) * 100.0) / 100.0;
     if (newZoom <= m_maxZoom) {
         m_zoom = newZoom;
-        m_imageView->setZoomFactor(m_zoom);
-        m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
+        refreshWorkbenchImages();
     }
 }
 
@@ -2095,8 +2219,7 @@ void MainWindow::zoomOut() {
     double newZoom = qRound((m_zoom - m_zoomStep) * 100.0) / 100.0;
     if (newZoom >= m_minZoom) {
         m_zoom = newZoom;
-        m_imageView->setZoomFactor(m_zoom);
-        m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
+        refreshWorkbenchImages();
     }
 }
 
@@ -2106,12 +2229,14 @@ void MainWindow::resetZoom() {
     }
 
     m_zoom = 1.0;
-    m_imageView->setZoomFactor(m_zoom);
-    m_zoomLabel->setText(QStringLiteral("100%"));
+    refreshWorkbenchImages();
 }
 
 void MainWindow::updateHoverInfo(int x, int y, QRgb rgba) {
     QRgb filteredRgba = rgba;
+    const QString processText = m_processingChain.isEmpty()
+        ? QString::fromUtf8(u8"无")
+        : m_processingChain.join(QString::fromUtf8(u8" → "));
 
     if (!m_filteredImage.isNull() &&
         x >= 0 && y >= 0 &&
@@ -2135,7 +2260,7 @@ void MainWindow::updateHoverInfo(int x, int y, QRgb rgba) {
             .arg(qGreen(filteredRgba))
             .arg(qBlue(filteredRgba))
             .arg(qAlpha(filteredRgba))
-            .arg(m_filterCombo->currentText())
+            .arg(processText)
             .arg(static_cast<int>(m_zoom * 100))
     );
 }
@@ -2149,6 +2274,9 @@ void MainWindow::updateHoverOutside() {
 
 void MainWindow::showPixelInfo(int x, int y, QRgb rgba) {
     QRgb filteredRgba = rgba;
+    const QString processText = m_processingChain.isEmpty()
+        ? QString::fromUtf8(u8"无")
+        : m_processingChain.join(QString::fromUtf8(u8" → "));
 
     if (!m_filteredImage.isNull() &&
         x >= 0 && y >= 0 &&
@@ -2179,7 +2307,7 @@ void MainWindow::showPixelInfo(int x, int y, QRgb rgba) {
             .arg(qGreen(filteredRgba))
             .arg(qBlue(filteredRgba))
             .arg(qAlpha(filteredRgba))
-            .arg(m_filterCombo->currentText())
+            .arg(processText)
             .arg(static_cast<int>(m_zoom * 100))
     );
 }
@@ -2317,7 +2445,8 @@ void MainWindow::updateHistogram() {
     }
 
     const QImage& source = m_filteredImage.isNull() ? m_originalImage : m_filteredImage;
-    QPixmap hist = ImageHistTools::drawGrayHistogram(source, 360, 180);
+    const QSize target = m_histogramLabel->size().isValid() ? m_histogramLabel->size() : QSize(180, 80);
+    QPixmap hist = ImageHistTools::drawGrayHistogram(source, target.width(), target.height());
     m_histogramLabel->setPixmap(hist);
     m_histogramLabel->setText(QString());
 }
@@ -2328,6 +2457,453 @@ void MainWindow::handleZoomWheel(int delta) {
     } else if (delta < 0) {
         zoomOut();
     }
+}
+
+QImage MainWindow::currentProcessingInput() const {
+    if (m_historyIndex >= 0 && m_historyIndex < m_resultHistory.size()) {
+        return m_resultHistory[m_historyIndex];
+    }
+    return m_originalImage;
+}
+
+void MainWindow::pushProcessingResult(const QImage& image, const QString& actionName) {
+    if (image.isNull()) {
+        QMessageBox::warning(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"当前处理没有生成有效结果"));
+        return;
+    }
+
+    while (m_resultHistory.size() > m_historyIndex + 1) {
+        m_resultHistory.removeLast();
+    }
+    while (m_chainHistory.size() > m_historyIndex + 1) {
+        m_chainHistory.removeLast();
+    }
+
+    m_processingChain.append(actionName);
+    m_resultHistory.append(image);
+    m_chainHistory.append(m_processingChain);
+    m_historyIndex = m_resultHistory.size() - 1;
+    m_filteredImage = image;
+    refreshWorkbenchImages();
+    updateProcessingStatus(QString::fromUtf8(u8"当前结果已更新"));
+}
+
+void MainWindow::refreshWorkbenchImages() {
+    if (m_imageView) {
+        m_imageView->setImages(m_originalImage, m_originalImage);
+        m_imageView->setZoomFactor(m_zoom);
+    }
+
+    if (m_historyIndex >= 0 && m_historyIndex < m_resultHistory.size()) {
+        m_filteredImage = m_resultHistory[m_historyIndex];
+    } else {
+        m_filteredImage = {};
+    }
+
+    if (m_resultView) {
+        const QImage result = m_filteredImage.isNull() ? m_originalImage : m_filteredImage;
+        m_resultView->setImages(result, result);
+        m_resultView->setZoomFactor(m_zoom);
+    }
+
+    if (m_fitOnNextRefresh && !m_originalImage.isNull()) {
+        double fittedZoom = m_zoom;
+        if (m_imageView) {
+            fittedZoom = m_imageView->fitToView();
+        }
+        if (m_resultView) {
+            m_resultView->setZoomFactor(fittedZoom);
+        }
+        m_zoom = fittedZoom;
+        m_fitOnNextRefresh = false;
+    }
+
+    if (m_zoomLabel) {
+        m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
+    }
+    updateHistogram();
+}
+
+void MainWindow::updateProcessingStatus(const QString& message) {
+    if (m_chainLabel) {
+        const QString chain = m_processingChain.isEmpty()
+            ? QString::fromUtf8(u8"当前处理：无")
+            : QString::fromUtf8(u8"当前处理：") + m_processingChain.join(QString::fromUtf8(u8" → "));
+        m_chainLabel->setText(chain);
+    }
+    if (m_undoButton) {
+        m_undoButton->setEnabled(m_historyIndex >= 0);
+    }
+    if (m_redoButton) {
+        m_redoButton->setEnabled(m_historyIndex + 1 < m_resultHistory.size());
+    }
+    if (m_resetButton) {
+        m_resetButton->setEnabled(!m_resultHistory.isEmpty());
+    }
+    if (!message.isEmpty()) {
+        statusBar()->showMessage(message);
+    }
+}
+
+void MainWindow::undoProcessing() {
+    if (m_historyIndex < 0) {
+        return;
+    }
+    --m_historyIndex;
+    m_processingChain = m_historyIndex >= 0 ? m_chainHistory.value(m_historyIndex) : QStringList();
+    refreshWorkbenchImages();
+    updateProcessingStatus(QString::fromUtf8(u8"已撤回上一步处理"));
+}
+
+void MainWindow::redoProcessing() {
+    if (m_historyIndex + 1 >= m_resultHistory.size()) {
+        return;
+    }
+    ++m_historyIndex;
+    m_processingChain = m_chainHistory.value(m_historyIndex);
+    refreshWorkbenchImages();
+    updateProcessingStatus(QString::fromUtf8(u8"已前进到下一步处理"));
+}
+
+void MainWindow::resetProcessing() {
+    m_resultHistory.clear();
+    m_chainHistory.clear();
+    m_processingChain.clear();
+    m_historyIndex = -1;
+    m_filteredImage = {};
+    m_frequencyIfftSource = {};
+    refreshWorkbenchImages();
+    updateProcessingStatus(QString::fromUtf8(u8"处理链已重置"));
+}
+
+void MainWindow::applyProcessingAction(const QString& actionName) {
+    if (m_originalImage.isNull()) {
+        QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载影像"));
+        return;
+    }
+
+    auto askNoiseDensity = [this](double* density) {
+        QDialog dialog(this);
+        dialog.setWindowTitle(QString::fromUtf8(u8"噪声参数"));
+        auto* layout = new QGridLayout(&dialog);
+        auto* slider = new QSlider(Qt::Horizontal, &dialog);
+        auto* value = new QLabel(QStringLiteral("8%"), &dialog);
+        auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
+        slider->setRange(0, 100);
+        slider->setValue(8);
+        layout->addWidget(new QLabel(QString::fromUtf8(u8"强度"), &dialog), 0, 0);
+        layout->addWidget(slider, 0, 1);
+        layout->addWidget(value, 0, 2);
+        layout->addWidget(apply, 1, 2);
+        connect(slider, &QSlider::valueChanged, value, [value](int v) {
+            value->setText(QString::number(v) + QStringLiteral("%"));
+        });
+        connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
+        if (dialog.exec() != QDialog::Accepted) {
+            return false;
+        }
+        *density = slider->value() / 100.0;
+        return true;
+    };
+
+    auto askKernel = [this](int* kernelSize) {
+        QDialog dialog(this);
+        dialog.setWindowTitle(QString::fromUtf8(u8"滤波参数"));
+        auto* layout = new QGridLayout(&dialog);
+        auto* spin = new QSpinBox(&dialog);
+        auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
+        spin->setRange(3, 15);
+        spin->setSingleStep(2);
+        spin->setValue(3);
+        layout->addWidget(new QLabel(QString::fromUtf8(u8"核大小"), &dialog), 0, 0);
+        layout->addWidget(spin, 0, 1);
+        layout->addWidget(apply, 1, 1);
+        connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
+        if (dialog.exec() != QDialog::Accepted) {
+            return false;
+        }
+        *kernelSize = spin->value();
+        return true;
+    };
+
+    auto askEdgeParams = [this](int* kernelSize, int* threshold) {
+        QDialog dialog(this);
+        dialog.setWindowTitle(QString::fromUtf8(u8"边缘参数"));
+        auto* layout = new QGridLayout(&dialog);
+        auto* spin = new QSpinBox(&dialog);
+        auto* slider = new QSlider(Qt::Horizontal, &dialog);
+        auto* value = new QLabel(QStringLiteral("80"), &dialog);
+        auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
+        spin->setRange(3, 5);
+        spin->setSingleStep(2);
+        spin->setValue(3);
+        slider->setRange(0, 255);
+        slider->setValue(80);
+        layout->addWidget(new QLabel(QString::fromUtf8(u8"核大小"), &dialog), 0, 0);
+        layout->addWidget(spin, 0, 1);
+        layout->addWidget(new QLabel(QString::fromUtf8(u8"阈值"), &dialog), 1, 0);
+        layout->addWidget(slider, 1, 1);
+        layout->addWidget(value, 1, 2);
+        layout->addWidget(apply, 2, 2);
+        connect(slider, &QSlider::valueChanged, value, [value](int v) {
+            value->setText(QString::number(v));
+        });
+        connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
+        if (dialog.exec() != QDialog::Accepted) {
+            return false;
+        }
+        *kernelSize = spin->value();
+        *threshold = slider->value();
+        return true;
+    };
+
+    auto askGamma = [this](double* gamma) {
+        QDialog dialog(this);
+        dialog.setWindowTitle(QString::fromUtf8(u8"Gamma 参数"));
+        auto* layout = new QGridLayout(&dialog);
+        auto* spin = new QDoubleSpinBox(&dialog);
+        auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
+        spin->setRange(0.1, 5.0);
+        spin->setSingleStep(0.1);
+        spin->setValue(0.8);
+        layout->addWidget(new QLabel(QStringLiteral("Gamma"), &dialog), 0, 0);
+        layout->addWidget(spin, 0, 1);
+        layout->addWidget(apply, 1, 1);
+        connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
+        if (dialog.exec() != QDialog::Accepted) {
+            return false;
+        }
+        *gamma = spin->value();
+        return true;
+    };
+
+    auto askFrequencyParams = [this](const QString& name, double* cutoff, int* order, double* gammaLow, double* gammaHigh, double* c) {
+        const bool noParams = name == QString::fromUtf8(u8"FFT 频谱") || name == QString::fromUtf8(u8"IFFT 重建");
+        if (noParams) {
+            return true;
+        }
+
+        const bool needsOrder = name == QString::fromUtf8(u8"巴特沃斯低通") || name == QString::fromUtf8(u8"巴特沃斯高通");
+        const bool needsHomomorphic = name == QString::fromUtf8(u8"同态滤波");
+
+        QDialog dialog(this);
+        dialog.setWindowTitle(QString::fromUtf8(u8"频域参数 - 医学影像分析平台"));
+        dialog.setModal(true);
+        dialog.setMinimumWidth(430);
+
+        auto* rootLayout = new QVBoxLayout(&dialog);
+        rootLayout->setContentsMargins(18, 16, 18, 16);
+        rootLayout->setSpacing(14);
+
+        auto* title = new QLabel(QString::fromUtf8(u8"频域分析参数"), &dialog);
+        title->setObjectName(QStringLiteral("PanelTitle"));
+        auto* subtitle = new QLabel(name, &dialog);
+        subtitle->setObjectName(QStringLiteral("MutedText"));
+        rootLayout->addWidget(title);
+        rootLayout->addWidget(subtitle);
+
+        auto* formLayout = new QGridLayout();
+        formLayout->setHorizontalSpacing(14);
+        formLayout->setVerticalSpacing(12);
+        formLayout->setColumnStretch(1, 1);
+
+        int row = 0;
+        auto addSpinRow = [&](const QString& labelText, QSpinBox* spin) {
+            spin->setMinimumWidth(190);
+            formLayout->addWidget(new QLabel(labelText, &dialog), row, 0);
+            formLayout->addWidget(spin, row, 1);
+            ++row;
+        };
+        auto addDoubleRow = [&](const QString& labelText, QDoubleSpinBox* spin) {
+            spin->setMinimumWidth(190);
+            formLayout->addWidget(new QLabel(labelText, &dialog), row, 0);
+            formLayout->addWidget(spin, row, 1);
+            ++row;
+        };
+
+        auto* cutoffSpin = new QSpinBox(&dialog);
+        cutoffSpin->setRange(1, 4096);
+        cutoffSpin->setValue(static_cast<int>(*cutoff));
+        addSpinRow(QString::fromUtf8(u8"截止半径"), cutoffSpin);
+
+        QSpinBox* orderSpin = nullptr;
+        if (needsOrder) {
+            orderSpin = new QSpinBox(&dialog);
+            orderSpin->setRange(1, 10);
+            orderSpin->setValue(*order);
+            addSpinRow(QString::fromUtf8(u8"阶数"), orderSpin);
+        }
+
+        QDoubleSpinBox* gammaLowSpin = nullptr;
+        QDoubleSpinBox* gammaHighSpin = nullptr;
+        QDoubleSpinBox* cSpin = nullptr;
+        if (needsHomomorphic) {
+            gammaLowSpin = new QDoubleSpinBox(&dialog);
+            gammaLowSpin->setRange(0.01, 5.0);
+            gammaLowSpin->setSingleStep(0.05);
+            gammaLowSpin->setValue(*gammaLow);
+            addDoubleRow(QStringLiteral("γL"), gammaLowSpin);
+
+            gammaHighSpin = new QDoubleSpinBox(&dialog);
+            gammaHighSpin->setRange(0.01, 5.0);
+            gammaHighSpin->setSingleStep(0.05);
+            gammaHighSpin->setValue(*gammaHigh);
+            addDoubleRow(QStringLiteral("γH"), gammaHighSpin);
+
+            cSpin = new QDoubleSpinBox(&dialog);
+            cSpin->setRange(0.01, 10.0);
+            cSpin->setSingleStep(0.1);
+            cSpin->setValue(*c);
+            addDoubleRow(QStringLiteral("c"), cSpin);
+        }
+
+        rootLayout->addLayout(formLayout);
+
+        auto* buttonRow = new QHBoxLayout();
+        buttonRow->addStretch(1);
+        auto* cancel = new QPushButton(QString::fromUtf8(u8"取消"), &dialog);
+        auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
+        cancel->setCursor(Qt::PointingHandCursor);
+        apply->setCursor(Qt::PointingHandCursor);
+        buttonRow->addWidget(cancel);
+        buttonRow->addWidget(apply);
+        rootLayout->addLayout(buttonRow);
+
+        connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+        connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+        if (dialog.exec() != QDialog::Accepted) {
+            return false;
+        }
+
+        *cutoff = cutoffSpin->value();
+        if (orderSpin) {
+            *order = orderSpin->value();
+        }
+        if (gammaLowSpin) {
+            *gammaLow = gammaLowSpin->value();
+        }
+        if (gammaHighSpin) {
+            *gammaHigh = gammaHighSpin->value();
+        }
+        if (cSpin) {
+            *c = cSpin->value();
+        }
+        return true;
+    };
+
+    QImage input = currentProcessingInput();
+    QImage result;
+
+    if (actionName == QString::fromUtf8(u8"原图")) {
+        result = m_originalImage;
+    } else if (actionName == QString::fromUtf8(u8"灰度") ||
+               actionName == QString::fromUtf8(u8"反相") ||
+               actionName == QString::fromUtf8(u8"二值化") ||
+               actionName == QString::fromUtf8(u8"暖色") ||
+               actionName == QString::fromUtf8(u8"冷色") ||
+               actionName == QString::fromUtf8(u8"边缘增强") ||
+               actionName == QString::fromUtf8(u8"锐化")) {
+        result = applyFilter(input, actionName);
+    } else if (actionName == QString::fromUtf8(u8"线性拉伸")) {
+        result = ImageHistTools::linearStretch(input);
+    } else if (actionName == QString::fromUtf8(u8"均衡化")) {
+        result = ImageHistTools::equalizeHist(input);
+    } else if (actionName == QString::fromUtf8(u8"直方图匹配")) {
+        QString path = QFileDialog::getOpenFileName(this, QString::fromUtf8(u8"选择匹配目标影像"));
+        if (path.isEmpty()) {
+            return;
+        }
+        QImage target(path);
+        if (target.isNull()) {
+            QMessageBox::warning(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"无法加载目标影像"));
+            return;
+        }
+        result = ImageHistTools::matchHist(input, target);
+    } else if (actionName == QString::fromUtf8(u8"椒盐噪声") || actionName == QString::fromUtf8(u8"脉冲噪声")) {
+        double density = 0.08;
+        if (!askNoiseDensity(&density)) {
+            return;
+        }
+        result = actionName == QString::fromUtf8(u8"椒盐噪声")
+            ? ImageLabProcessor::addSaltPepperNoise(input, density)
+            : ImageLabProcessor::addImpulseNoise(input, density);
+    } else if (actionName == QString::fromUtf8(u8"均值滤波") ||
+               actionName == QString::fromUtf8(u8"中值滤波") ||
+               actionName == QString::fromUtf8(u8"最大值滤波")) {
+        int kernelSize = 3;
+        if (!askKernel(&kernelSize)) {
+            return;
+        }
+        if (actionName == QString::fromUtf8(u8"均值滤波")) {
+            result = ImageLabProcessor::meanFilter(input, kernelSize);
+        } else if (actionName == QString::fromUtf8(u8"中值滤波")) {
+            result = ImageLabProcessor::medianFilter(input, kernelSize);
+        } else {
+            result = ImageLabProcessor::maxFilter(input, kernelSize);
+        }
+    } else if (actionName == QString::fromUtf8(u8"Sobel") ||
+               actionName == QString::fromUtf8(u8"Prewitt") ||
+               actionName == QString::fromUtf8(u8"Laplacian")) {
+        int kernelSize = 3;
+        int threshold = 80;
+        if (!askEdgeParams(&kernelSize, &threshold)) {
+            return;
+        }
+        if (actionName == QString::fromUtf8(u8"Sobel")) {
+            result = ImageLabProcessor::sobelEdgeDetect(input, kernelSize, threshold);
+        } else if (actionName == QString::fromUtf8(u8"Prewitt")) {
+            result = ImageLabProcessor::prewittEdgeDetect(input, kernelSize, threshold);
+        } else {
+            result = ImageLabProcessor::laplacianEdgeDetect(input, kernelSize, threshold);
+        }
+    } else if (actionName == QString::fromUtf8(u8"Laplacian 处理")) {
+        result = ImageLabProcessor::step2_laplacianProcess(input);
+    } else if (actionName == QString::fromUtf8(u8"锐化处理")) {
+        result = ImageLabProcessor::step3_sharpenImage(input, ImageLabProcessor::step2_laplacianProcess(input));
+    } else if (actionName == QString::fromUtf8(u8"Sobel 梯度")) {
+        result = ImageLabProcessor::step4_sobelProcess(input);
+    } else if (actionName == QString::fromUtf8(u8"均值平滑梯度")) {
+        result = ImageLabProcessor::step5_meanFilterGradient(input);
+    } else if (actionName == QString::fromUtf8(u8"掩膜增强")) {
+        result = ImageLabProcessor::step6_maskImage(input, ImageLabProcessor::step5_meanFilterGradient(ImageLabProcessor::step4_sobelProcess(input)));
+    } else if (actionName == QString::fromUtf8(u8"原图叠加掩膜")) {
+        result = ImageLabProcessor::step7_addOriginalAndMask(m_originalImage, input);
+    } else if (actionName == QString::fromUtf8(u8"Gamma 变换")) {
+        double gamma = 0.8;
+        if (!askGamma(&gamma)) {
+            return;
+        }
+        result = ImageLabProcessor::step8_gammaTransform(input, gamma);
+    } else if (actionName == QString::fromUtf8(u8"FFT 频谱") ||
+               actionName == QString::fromUtf8(u8"IFFT 重建") ||
+               actionName == QString::fromUtf8(u8"理想低通") ||
+               actionName == QString::fromUtf8(u8"巴特沃斯低通") ||
+               actionName == QString::fromUtf8(u8"理想高通") ||
+               actionName == QString::fromUtf8(u8"巴特沃斯高通") ||
+               actionName == QString::fromUtf8(u8"同态滤波")) {
+        double cutoff = 40.0;
+        int order = 2;
+        double gammaLow = 0.5;
+        double gammaHigh = 1.8;
+        double c = 1.0;
+        if (!askFrequencyParams(actionName, &cutoff, &order, &gammaLow, &gammaHigh, &c)) {
+            return;
+        }
+        if (actionName == QString::fromUtf8(u8"FFT 频谱")) {
+            m_frequencyIfftSource = input;
+            result = FourierExperimentWidget::processFrequencyImage(input, actionName, cutoff, order, gammaLow, gammaHigh, c);
+        } else if (actionName == QString::fromUtf8(u8"IFFT 重建") &&
+                   !m_frequencyIfftSource.isNull() &&
+                   !m_processingChain.isEmpty() &&
+                   m_processingChain.last() == QString::fromUtf8(u8"FFT 频谱")) {
+            result = FourierExperimentWidget::processFrequencyImage(m_frequencyIfftSource, actionName, cutoff, order, gammaLow, gammaHigh, c);
+        } else {
+            result = FourierExperimentWidget::processFrequencyImage(input, actionName, cutoff, order, gammaLow, gammaHigh, c);
+        }
+    }
+
+    pushProcessingResult(result, actionName);
 }
 
 void MainWindow::doLinearStretch() {

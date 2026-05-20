@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QImage>
+#include <QString>
 #include <QVector>
 #include <QWidget>
 
@@ -19,6 +20,15 @@ class FourierExperimentWidget : public QWidget {
 public:
     explicit FourierExperimentWidget(QWidget* parent = nullptr);
     void initializeFromDesignerUi();
+    static QImage processFrequencyImage(
+        const QImage& image,
+        const QString& actionName,
+        double cutoff,
+        int order,
+        double gammaLow,
+        double gammaHigh,
+        double c
+    );
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -65,12 +75,25 @@ private:
 
     QString describeCurrentImage() const;
 
-    static SpectrumData computeSpectrum(const QImage& image, bool useLog = false);
+    // 频域分析算法模块，按处理流程集中组织。
+    static void moduleFftAndIfft(QVector<Complex>& data, int width, int height, bool inverse);
+    static SpectrumData moduleFourierTransform2D(const QImage& image);
+    static SpectrumData moduleIdealLowPassFilter(const SpectrumData& spectrum, double cutoff);
+    static SpectrumData moduleButterworthLowPassFilter(const SpectrumData& spectrum, double cutoff, int order);
+    static SpectrumData moduleIdealHighPassFilter(const SpectrumData& spectrum, double cutoff);
+    static SpectrumData moduleButterworthHighPassFilter(const SpectrumData& spectrum, double cutoff, int order);
+    static QImage moduleHomomorphicFilter(
+        const QImage& image,
+        double cutoff,
+        double gammaLow,
+        double gammaHigh,
+        double c,
+        QImage* spectrumImage
+    );
+
     static QImage spectrumToImage(const SpectrumData& spectrum);
-    static SpectrumData filteredSpectrum(const SpectrumData& spectrum, FrequencyFilter filter, double cutoff, int order);
     static QImage inverseToImage(const SpectrumData& spectrum);
     static QImage highBoostImage(const QImage& original, const SpectrumData& highPassSpectrum, double amount);
-    static QImage homomorphicImage(const QImage& image, double cutoff, double gammaLow, double gammaHigh, double c, QImage* spectrumImage);
 
     QLineEdit* m_pathEdit = nullptr;
     QLabel* m_imageInfoLabel = nullptr;

@@ -2,6 +2,7 @@
 
 #include <QImage>
 #include <QMainWindow>
+#include <QStringList>
 #include <QVector>
 #include <memory>
 
@@ -68,6 +69,9 @@ private slots:
     void saveNoiseExperimentResult();
     void saveEdgeExperimentResult();
     void saveEnhancementExperimentResult();
+    void undoProcessing();
+    void redoProcessing();
+    void resetProcessing();
 
 private:
     void createUi();
@@ -85,6 +89,11 @@ private:
     void renderCurrentImage();
     void updateHistogram();
     void handleZoomWheel(int delta);
+    void applyProcessingAction(const QString& actionName);
+    void pushProcessingResult(const QImage& image, const QString& actionName);
+    QImage currentProcessingInput() const;
+    void refreshWorkbenchImages();
+    void updateProcessingStatus(const QString& message = QString());
     bool isSupportedImageFile(const QString& filePath) const;
     QImage applyFilter(const QImage& img, const QString& filterName) const;
     QImage convolve(const QImage& img, const QVector<float>& kernel, float divisor, float bias = 0.0f) const;
@@ -128,8 +137,10 @@ private:
     QLabel* m_folderLabel = nullptr;
     QLabel* m_zoomLabel = nullptr;
     QLabel* m_previewHint = nullptr;
+    QLabel* m_chainLabel = nullptr;
     QComboBox* m_filterCombo = nullptr;
     ImageView* m_imageView = nullptr;
+    ImageView* m_resultView = nullptr;
     QTabWidget* m_mainTabs = nullptr;
     QListWidget* m_experimentList = nullptr;
     QStackedWidget* m_experimentStackedWidget = nullptr;
@@ -155,6 +166,16 @@ private:
     QImage m_noiseNoisyImage;
     QImage m_noiseDenoisedImage;
     QString m_noiseSourcePath;
+
+    QVector<QImage> m_resultHistory;
+    QVector<QStringList> m_chainHistory;
+    QStringList m_processingChain;
+    int m_historyIndex = -1;
+    bool m_fitOnNextRefresh = false;
+    QImage m_frequencyIfftSource;
+    QPushButton* m_undoButton = nullptr;
+    QPushButton* m_redoButton = nullptr;
+    QPushButton* m_resetButton = nullptr;
 
     QWidget* m_edgeExperimentPage = nullptr;
     QLineEdit* m_edgeInputPathEdit = nullptr;

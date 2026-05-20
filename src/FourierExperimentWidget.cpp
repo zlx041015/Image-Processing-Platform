@@ -32,96 +32,6 @@ int clampToByte(double value) {
     return std::clamp(static_cast<int>(std::lround(value)), 0, 255);
 }
 
-QVector<Complex> makeCenteredSamples(
-    const QImage& image,
-    int paddedWidth,
-    int paddedHeight,
-    bool useLog
-) {
-    QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
-    QVector<Complex> data(paddedWidth * paddedHeight);
-    for (int y = 0; y < paddedHeight; ++y) {
-        for (int x = 0; x < paddedWidth; ++x) {
-            double value = 0.0;
-            if (x < gray.width() && y < gray.height()) {
-                value = qGray(gray.pixel(x, y));
-                if (useLog) {
-                    value = std::log1p(value);
-                }
-            }
-            if ((x + y) & 1) {
-                value = -value;
-            }
-            data[y * paddedWidth + x] = Complex(value, 0.0);
-        }
-    }
-    return data;
-}
-
-void fft1D(QVector<Complex>& data, bool inverse) {
-    const int n = data.size();
-    if (n <= 1) {
-        return;
-    }
-
-    for (int i = 1, j = 0; i < n; ++i) {
-        int bit = n >> 1;
-        for (; j & bit; bit >>= 1) {
-            j ^= bit;
-        }
-        j ^= bit;
-        if (i < j) {
-            std::swap(data[i], data[j]);
-        }
-    }
-
-    for (int len = 2; len <= n; len <<= 1) {
-        const double angle = 2.0 * kPi / len * (inverse ? 1.0 : -1.0);
-        const Complex wLen(std::cos(angle), std::sin(angle));
-        for (int i = 0; i < n; i += len) {
-            Complex w(1.0, 0.0);
-            for (int j = 0; j < len / 2; ++j) {
-                const Complex u = data[i + j];
-                const Complex v = data[i + j + len / 2] * w;
-                data[i + j] = u + v;
-                data[i + j + len / 2] = u - v;
-                w *= wLen;
-            }
-        }
-    }
-
-    if (inverse) {
-        for (Complex& value : data) {
-            value /= static_cast<double>(n);
-        }
-    }
-}
-
-void fft2D(QVector<Complex>& data, int width, int height, bool inverse) {
-    QVector<Complex> line(std::max(width, height));
-
-    for (int y = 0; y < height; ++y) {
-        line.resize(width);
-        for (int x = 0; x < width; ++x) {
-            line[x] = data[y * width + x];
-        }
-        fft1D(line, inverse);
-        for (int x = 0; x < width; ++x) {
-            data[y * width + x] = line[x];
-        }
-    }
-
-    for (int x = 0; x < width; ++x) {
-        line.resize(height);
-        for (int y = 0; y < height; ++y) {
-            line[y] = data[y * width + x];
-        }
-        fft1D(line, inverse);
-        for (int y = 0; y < height; ++y) {
-            data[y * width + x] = line[y];
-        }
-    }
-}
 }
 
 FourierExperimentWidget::FourierExperimentWidget(QWidget* parent) : QWidget(parent) {
@@ -169,7 +79,7 @@ void FourierExperimentWidget::initializeFromDesignerUi() {
     connect(m_saveButton, &QPushButton::clicked, this, &FourierExperimentWidget::saveResult);
 
     m_uiInitialized = true;
-    setStatus(QString::fromUtf8(u8"状态：请加载图像后开始实验四"));
+    setStatus(QString::fromUtf8(u8"状态：请加载图像后开始频域分析"));
 }
 
 void FourierExperimentWidget::resizeEvent(QResizeEvent* event) {
@@ -180,7 +90,7 @@ void FourierExperimentWidget::resizeEvent(QResizeEvent* event) {
 void FourierExperimentWidget::openImage() {
     const QString filePath = QFileDialog::getOpenFileName(
         this,
-        QString::fromUtf8(u8"打开实验四图像"),
+        QString::fromUtf8(u8"打开频域分析图像"),
         QString(),
         QString::fromUtf8(u8"图像文件 (*.bmp *.jpg *.jpeg *.png *.tif *.tiff);;所有文件 (*.*)")
     );
@@ -228,7 +138,7 @@ void FourierExperimentWidget::loadImageFromPath(const QString& filePath) {
     m_pathEdit->setText(filePath);
     m_imageInfoLabel->setText(describeCurrentImage());
     refreshPreviewLabels();
-    setStatus(QString::fromUtf8(u8"状态：已加载图像，可执行 FFT 或滤波实验"));
+    setStatus(QString::fromUtf8(u8"状态：已加载图像，可执行 FFT 或频域滤波"));
 }
 
 void FourierExperimentWidget::runForwardFft() {
@@ -276,7 +186,21 @@ void FourierExperimentWidget::applyFrequencyFilter(FrequencyFilter filter) {
 
     const double cutoff = static_cast<double>(m_cutoffSpin->value());
     const int order = m_orderSpin->value();
-    auto filtered = filteredSpectrum(m_spectrum, filter, cutoff, order);
+    SpectrumData filtered;
+    switch (filter) {
+    case FrequencyFilter::IdealLowPass:
+        filtered = moduleIdealLowPassFilter(m_spectrum, cutoff);
+        break;
+    case FrequencyFilter::ButterworthLowPass:
+        filtered = moduleButterworthLowPassFilter(m_spectrum, cutoff, order);
+        break;
+    case FrequencyFilter::IdealHighPass:
+        filtered = moduleIdealHighPassFilter(m_spectrum, cutoff);
+        break;
+    case FrequencyFilter::ButterworthHighPass:
+        filtered = moduleButterworthHighPassFilter(m_spectrum, cutoff, order);
+        break;
+    }
     m_spectrumPreview = spectrumToImage(filtered);
     if (filter == FrequencyFilter::IdealHighPass || filter == FrequencyFilter::ButterworthHighPass) {
         m_resultPreview = highBoostImage(m_originalImage, filtered, 1.0);
@@ -314,7 +238,7 @@ void FourierExperimentWidget::applyHomomorphicFilter() {
     }
 
     QImage spectrumImage;
-    m_resultPreview = homomorphicImage(
+    m_resultPreview = moduleHomomorphicFilter(
         m_originalImage,
         static_cast<double>(m_cutoffSpin->value()),
         m_gammaLowSpin->value(),
@@ -338,7 +262,7 @@ void FourierExperimentWidget::saveResult() {
     const QString suggested = QFileInfo(m_currentPath).completeBaseName() + QStringLiteral("_fourier_result.png");
     const QString filePath = QFileDialog::getSaveFileName(
         this,
-        QString::fromUtf8(u8"保存实验四结果"),
+        QString::fromUtf8(u8"保存频域分析结果"),
         suggested,
         QString::fromUtf8(u8"PNG 图像 (*.png);;BMP 图像 (*.bmp);;JPEG 图像 (*.jpg)")
     );
@@ -359,7 +283,7 @@ bool FourierExperimentWidget::ensureSpectrum() {
         return false;
     }
     if (!m_spectrum.isValid()) {
-        m_spectrum = computeSpectrum(m_originalImage, false);
+        m_spectrum = moduleFourierTransform2D(m_originalImage);
     }
     if (!m_spectrum.isValid()) {
         QMessageBox::critical(this, QString::fromUtf8(u8"错误"), QString::fromUtf8(u8"FFT 计算失败。"));
@@ -412,19 +336,47 @@ QString FourierExperimentWidget::describeCurrentImage() const {
         .arg(m_currentBitDepth);
 }
 
-FourierExperimentWidget::SpectrumData FourierExperimentWidget::computeSpectrum(const QImage& image, bool useLog) {
-    SpectrumData spectrum;
+QImage FourierExperimentWidget::processFrequencyImage(
+    const QImage& image,
+    const QString& actionName,
+    double cutoff,
+    int order,
+    double gammaLow,
+    double gammaHigh,
+    double c
+) {
     if (image.isNull()) {
-        return spectrum;
+        return {};
     }
 
-    spectrum.originalWidth = image.width();
-    spectrum.originalHeight = image.height();
-    spectrum.width = nextPowerOfTwo(image.width());
-    spectrum.height = nextPowerOfTwo(image.height());
-    spectrum.values = makeCenteredSamples(image, spectrum.width, spectrum.height, useLog);
-    fft2D(spectrum.values, spectrum.width, spectrum.height, false);
-    return spectrum;
+    if (actionName == QString::fromUtf8(u8"同态滤波")) {
+        return moduleHomomorphicFilter(image, cutoff, gammaLow, gammaHigh, c, nullptr);
+    }
+
+    SpectrumData spectrum = moduleFourierTransform2D(image);
+    if (!spectrum.isValid()) {
+        return {};
+    }
+
+    if (actionName == QString::fromUtf8(u8"FFT 频谱")) {
+        return spectrumToImage(spectrum);
+    }
+    if (actionName == QString::fromUtf8(u8"IFFT 重建")) {
+        return inverseToImage(spectrum);
+    }
+    if (actionName == QString::fromUtf8(u8"理想低通")) {
+        return inverseToImage(moduleIdealLowPassFilter(spectrum, cutoff));
+    }
+    if (actionName == QString::fromUtf8(u8"巴特沃斯低通")) {
+        return inverseToImage(moduleButterworthLowPassFilter(spectrum, cutoff, order));
+    }
+    if (actionName == QString::fromUtf8(u8"理想高通")) {
+        return highBoostImage(image, moduleIdealHighPassFilter(spectrum, cutoff), 1.0);
+    }
+    if (actionName == QString::fromUtf8(u8"巴特沃斯高通")) {
+        return highBoostImage(image, moduleButterworthHighPassFilter(spectrum, cutoff, order), 1.0);
+    }
+    return {};
 }
 
 QImage FourierExperimentWidget::spectrumToImage(const SpectrumData& spectrum) {
@@ -456,61 +408,13 @@ QImage FourierExperimentWidget::spectrumToImage(const SpectrumData& spectrum) {
     return image;
 }
 
-FourierExperimentWidget::SpectrumData FourierExperimentWidget::filteredSpectrum(
-    const SpectrumData& spectrum,
-    FrequencyFilter filter,
-    double cutoff,
-    int order
-) {
-    SpectrumData out = spectrum;
-    if (!out.isValid()) {
-        return out;
-    }
-
-    cutoff = std::max(1.0, cutoff);
-    order = std::max(1, order);
-    const double centerX = out.width / 2.0;
-    const double centerY = out.height / 2.0;
-
-    for (int y = 0; y < out.height; ++y) {
-        for (int x = 0; x < out.width; ++x) {
-            const double dx = x - centerX;
-            const double dy = y - centerY;
-            const double distance = std::sqrt(dx * dx + dy * dy);
-            double gain = 1.0;
-
-            switch (filter) {
-            case FrequencyFilter::IdealLowPass:
-                gain = distance <= cutoff ? 1.0 : 0.0;
-                break;
-            case FrequencyFilter::IdealHighPass:
-                gain = distance > cutoff ? 1.0 : 0.0;
-                break;
-            case FrequencyFilter::ButterworthLowPass:
-                gain = 1.0 / (1.0 + std::pow(distance / cutoff, 2.0 * order));
-                break;
-            case FrequencyFilter::ButterworthHighPass:
-                if (distance <= std::numeric_limits<double>::epsilon()) {
-                    gain = 0.0;
-                } else {
-                    gain = 1.0 / (1.0 + std::pow(cutoff / distance, 2.0 * order));
-                }
-                break;
-            }
-
-            out.values[y * out.width + x] *= gain;
-        }
-    }
-    return out;
-}
-
 QImage FourierExperimentWidget::inverseToImage(const SpectrumData& spectrum) {
     if (!spectrum.isValid()) {
         return {};
     }
 
     QVector<Complex> spatial = spectrum.values;
-    fft2D(spatial, spectrum.width, spectrum.height, true);
+    moduleFftAndIfft(spatial, spectrum.width, spectrum.height, true);
 
     QImage out(spectrum.originalWidth, spectrum.originalHeight, QImage::Format_Grayscale8);
     for (int y = 0; y < out.height(); ++y) {
@@ -532,7 +436,7 @@ QImage FourierExperimentWidget::highBoostImage(const QImage& original, const Spe
     }
 
     QVector<Complex> spatial = highPassSpectrum.values;
-    fft2D(spatial, highPassSpectrum.width, highPassSpectrum.height, true);
+    moduleFftAndIfft(spatial, highPassSpectrum.width, highPassSpectrum.height, true);
 
     QImage gray = original.convertToFormat(QImage::Format_Grayscale8);
     QImage out(highPassSpectrum.originalWidth, highPassSpectrum.originalHeight, QImage::Format_Grayscale8);
@@ -549,8 +453,239 @@ QImage FourierExperimentWidget::highBoostImage(const QImage& original, const Spe
     }
     return out;
 }
+// ==================== 频域分析算法模块 ====================
 
-QImage FourierExperimentWidget::homomorphicImage(
+// 1. FFT 和 IFFT：inverse=false 时执行 FFT，inverse=true 时执行 IFFT。
+void FourierExperimentWidget::moduleFftAndIfft(QVector<Complex>& data, int width, int height
+    , bool inverse) {
+    QVector<Complex> line(std::max(width, height));
+
+    for (int y = 0; y < height; ++y) {
+        line.resize(width);
+        for (int x = 0; x < width; ++x) {
+            line[x] = data[y * width + x];
+        }
+
+        for (int i = 1, j = 0; i < width; ++i) {
+            int bit = width >> 1;
+            for (; j & bit; bit >>= 1) {
+                j ^= bit;
+            }
+            j ^= bit;
+            if (i < j) {
+                std::swap(line[i], line[j]);
+            }
+        }
+
+        for (int len = 2; len <= width; len <<= 1) {
+            const double angle = 2.0 * kPi / len * (inverse ? 1.0 : -1.0);
+            const Complex wLen(std::cos(angle), std::sin(angle));
+            for (int i = 0; i < width; i += len) {
+                Complex w(1.0, 0.0);
+                for (int j = 0; j < len / 2; ++j) {
+                    const Complex u = line[i + j];
+                    const Complex v = line[i + j + len / 2] * w;
+                    line[i + j] = u + v;
+                    line[i + j + len / 2] = u - v;
+                    w *= wLen;
+                }
+            }
+        }
+
+        if (inverse) {
+            for (Complex& value : line) {
+                value /= static_cast<double>(width);
+            }
+        }
+
+        for (int x = 0; x < width; ++x) {
+            data[y * width + x] = line[x];
+        }
+    }
+
+    for (int x = 0; x < width; ++x) {
+        line.resize(height);
+        for (int y = 0; y < height; ++y) {
+            line[y] = data[y * width + x];
+        }
+
+        for (int i = 1, j = 0; i < height; ++i) {
+            int bit = height >> 1;
+            for (; j & bit; bit >>= 1) {
+                j ^= bit;
+            }
+            j ^= bit;
+            if (i < j) {
+                std::swap(line[i], line[j]);
+            }
+        }
+        for (int len = 2; len <= height; len <<= 1) {
+            const double angle = 2.0 * kPi / len * (inverse ? 1.0 : -1.0);
+            const Complex wLen(std::cos(angle), std::sin(angle));
+            for (int i = 0; i < height; i += len) {
+                Complex w(1.0, 0.0);
+                for (int j = 0; j < len / 2; ++j) {
+                    const Complex u = line[i + j];
+                    const Complex v = line[i + j + len / 2] * w;
+                    line[i + j] = u + v;
+                    line[i + j + len / 2] = u - v;
+                    w *= wLen;
+                }
+            }
+        }
+        if (inverse) {
+            for (Complex& value : line) {
+                value /= static_cast<double>(height);
+            }
+        }
+
+        for (int y = 0; y < height; ++y) {
+            data[y * width + x] = line[y];
+        }
+    }
+}
+
+// 2. 对一幅二维数字图像进行傅里叶变换。
+FourierExperimentWidget::SpectrumData FourierExperimentWidget::moduleFourierTransform2D(const 
+    QImage& image) {
+    SpectrumData spectrum;
+    if (image.isNull()) {
+        return spectrum;
+    }
+
+    spectrum.originalWidth = image.width();
+    spectrum.originalHeight = image.height();
+    spectrum.width = nextPowerOfTwo(image.width());
+    spectrum.height = nextPowerOfTwo(image.height());
+
+    QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
+    spectrum.values.resize(spectrum.width * spectrum.height);
+    for (int y = 0; y < spectrum.height; ++y) {
+        for (int x = 0; x < spectrum.width; ++x) {
+            double value = 0.0;
+            if (x < gray.width() && y < gray.height()) {
+                value = qGray(gray.pixel(x, y));
+            }
+            if ((x + y) & 1) {
+                value = -value;
+            }
+            spectrum.values[y * spectrum.width + x] = Complex(value, 0.0);
+        }
+    }
+
+    moduleFftAndIfft(spectrum.values, spectrum.width, spectrum.height, false);
+    return spectrum;
+}
+
+// 3. 理想低通滤波器函数。
+FourierExperimentWidget::SpectrumData FourierExperimentWidget::moduleIdealLowPassFilter(
+    const SpectrumData& spectrum,
+    double cutoff
+) {
+    SpectrumData out = spectrum;
+    if (!out.isValid()) {
+        return out;
+    }
+
+    cutoff = std::max(1.0, cutoff);
+    const double centerX = out.width / 2.0;
+    const double centerY = out.height / 2.0;
+    for (int y = 0; y < out.height; ++y) {
+        for (int x = 0; x < out.width; ++x) {
+            const double dx = x - centerX;
+            const double dy = y - centerY;
+            const double distance = std::sqrt(dx * dx + dy * dy);
+            const double gain = distance <= cutoff ? 1.0 : 0.0;
+            out.values[y * out.width + x] *= gain;
+        }
+    }
+    return out;
+}
+
+// 4. 巴特沃斯低通滤波器。
+FourierExperimentWidget::SpectrumData FourierExperimentWidget::moduleButterworthLowPassFilter(
+    const SpectrumData& spectrum,
+    double cutoff,
+    int order
+) {
+    SpectrumData out = spectrum;
+    if (!out.isValid()) {
+        return out;
+    }
+
+    cutoff = std::max(1.0, cutoff);
+    order = std::max(1, order);
+    const double centerX = out.width / 2.0;
+    const double centerY = out.height / 2.0;
+    for (int y = 0; y < out.height; ++y) {
+        for (int x = 0; x < out.width; ++x) {
+            const double dx = x - centerX;
+            const double dy = y - centerY;
+            const double distance = std::sqrt(dx * dx + dy * dy);
+            const double gain = 1.0 / (1.0 + std::pow(distance / cutoff, 2.0 * order));
+            out.values[y * out.width + x] *= gain;
+        }
+    }
+    return out;
+}
+
+// 5. 理想高通滤波器。
+FourierExperimentWidget::SpectrumData FourierExperimentWidget::moduleIdealHighPassFilter(
+    const SpectrumData& spectrum,
+    double cutoff
+) {
+    SpectrumData out = spectrum;
+    if (!out.isValid()) {
+        return out;
+    }
+
+    cutoff = std::max(1.0, cutoff);
+    const double centerX = out.width / 2.0;
+    const double centerY = out.height / 2.0;
+    for (int y = 0; y < out.height; ++y) {
+        for (int x = 0; x < out.width; ++x) {
+            const double dx = x - centerX;
+            const double dy = y - centerY;
+            const double distance = std::sqrt(dx * dx + dy * dy);
+            const double gain = distance > cutoff ? 1.0 : 0.0;
+            out.values[y * out.width + x] *= gain;
+        }
+    }
+    return out;
+}
+
+// 6. 巴特沃斯高通滤波器。
+FourierExperimentWidget::SpectrumData FourierExperimentWidget::moduleButterworthHighPassFilter(
+    const SpectrumData& spectrum,
+    double cutoff,
+    int order
+) {
+    SpectrumData out = spectrum;
+    if (!out.isValid()) {
+        return out;
+    }
+
+    cutoff = std::max(1.0, cutoff);
+    order = std::max(1, order);
+    const double centerX = out.width / 2.0;
+    const double centerY = out.height / 2.0;
+    for (int y = 0; y < out.height; ++y) {
+        for (int x = 0; x < out.width; ++x) {
+            const double dx = x - centerX;
+            const double dy = y - centerY;
+            const double distance = std::sqrt(dx * dx + dy * dy);
+            double gain = 0.0;
+            if (distance > std::numeric_limits<double>::epsilon()) {
+                gain = 1.0 / (1.0 + std::pow(cutoff / distance, 2.0 * order));
+            }
+            out.values[y * out.width + x] *= gain;
+        }
+    }
+    return out;
+}
+
+// 7. 同态滤波器。
+QImage FourierExperimentWidget::moduleHomomorphicFilter(
     const QImage& image,
     double cutoff,
     double gammaLow,
@@ -558,10 +693,32 @@ QImage FourierExperimentWidget::homomorphicImage(
     double c,
     QImage* spectrumImage
 ) {
-    SpectrumData spectrum = computeSpectrum(image, true);
-    if (!spectrum.isValid()) {
+    SpectrumData spectrum;
+    if (image.isNull()) {
         return {};
     }
+
+    spectrum.originalWidth = image.width();
+    spectrum.originalHeight = image.height();
+    spectrum.width = nextPowerOfTwo(image.width());
+    spectrum.height = nextPowerOfTwo(image.height());
+
+    QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
+    spectrum.values.resize(spectrum.width * spectrum.height);
+    for (int y = 0; y < spectrum.height; ++y) {
+        for (int x = 0; x < spectrum.width; ++x) {
+            double value = 0.0;
+            if (x < gray.width() && y < gray.height()) {
+                value = std::log1p(qGray(gray.pixel(x, y)));
+            }
+            if ((x + y) & 1) {
+                value = -value;
+            }
+            spectrum.values[y * spectrum.width + x] = Complex(value, 0.0);
+        }
+    }
+
+    moduleFftAndIfft(spectrum.values, spectrum.width, spectrum.height, false);
 
     cutoff = std::max(1.0, cutoff);
     gammaLow = std::max(0.01, gammaLow);
@@ -581,17 +738,36 @@ QImage FourierExperimentWidget::homomorphicImage(
     }
 
     if (spectrumImage) {
-        *spectrumImage = spectrumToImage(spectrum);
+        QVector<double> magnitudes(spectrum.values.size());
+        double maxValue = 0.0;
+        for (int i = 0; i < spectrum.values.size(); ++i) {
+            const double value = std::log1p(std::abs(spectrum.values[i]));
+            magnitudes[i] = value;
+            maxValue = std::max(maxValue, value);
+        }
+
+        QImage view(spectrum.width, spectrum.height, QImage::Format_Grayscale8);
+        if (maxValue <= std::numeric_limits<double>::epsilon()) {
+            view.fill(Qt::black);
+        } else {
+            for (int y = 0; y < spectrum.height; ++y) {
+                uchar* dst = view.scanLine(y);
+                for (int x = 0; x < spectrum.width; ++x) {
+                    const double normalized = magnitudes[y * spectrum.width + x] / maxValue;
+                    dst[x] = static_cast<uchar>(clampToByte(normalized * 255.0));
+                }
+            }
+        }
+        *spectrumImage = view;
     }
 
     QVector<Complex> spatial = spectrum.values;
-    fft2D(spatial, spectrum.width, spectrum.height, true);
+    moduleFftAndIfft(spatial, spectrum.width, spectrum.height, true);
 
     QImage out(spectrum.originalWidth, spectrum.originalHeight, QImage::Format_Grayscale8);
     double minValue = std::numeric_limits<double>::max();
     double maxValue = std::numeric_limits<double>::lowest();
     QVector<double> values(out.width() * out.height());
-
     for (int y = 0; y < out.height(); ++y) {
         for (int x = 0; x < out.width(); ++x) {
             double value = spatial[y * spectrum.width + x].real();

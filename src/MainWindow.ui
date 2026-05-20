@@ -3,7 +3,7 @@
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
   <property name="windowTitle">
-   <string>医学影像处理软件</string>
+   <string>医学影像分析平台</string>
   </property>
   <property name="styleSheet">
    <string notr="true">QMainWindow#MainWindow {
@@ -582,12 +582,12 @@ QPushButton#fourierSaveButton:disabled {
               <property name="spacing"><number>6</number></property>
               <item>
                <widget class="QLabel" name="fourierTitle">
-                <property name="text"><string>实验四：图像的二维傅里叶变换及变换域滤波</string></property>
+                <property name="text"><string>频域分析：二维傅里叶变换与变换域滤波</string></property>
                </widget>
               </item>
               <item>
                <widget class="QLabel" name="fourierSubtitle">
-                <property name="text"><string>实现 FFT/IFFT、理想/巴特沃斯低通与高通滤波、同态滤波，并对实验图像进行频域处理。</string></property>
+                <property name="text"><string>提供 FFT/IFFT、理想/巴特沃斯低通与高通滤波、同态滤波，用于医学影像的频域分析与增强。</string></property>
                 <property name="wordWrap"><bool>true</bool></property>
                </widget>
               </item>
@@ -806,7 +806,7 @@ QPushButton#fourierSaveButton:disabled {
               <property name="spacing"><number>8</number></property>
               <item>
                <widget class="QLabel" name="fourierNotesTitle">
-                <property name="text"><string>实验记录</string></property>
+                <property name="text"><string>处理说明</string></property>
                </widget>
               </item>
               <item>
@@ -825,7 +825,7 @@ QPushButton#fourierSaveButton:disabled {
            <item>
             <widget class="QLabel" name="fourierStatusLabel">
              <property name="minimumSize"><size><width>0</width><height>26</height></size></property>
-             <property name="text"><string>状态：请加载图像后开始实验四</string></property>
+             <property name="text"><string>状态：请加载图像后开始频域分析</string></property>
             </widget>
            </item>
           </layout>
