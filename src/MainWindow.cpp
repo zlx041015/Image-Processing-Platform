@@ -28,6 +28,7 @@
 #include <QMimeData>
 #include <QPixmap>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QResizeEvent>
 #include <QStatusBar>
@@ -93,6 +94,31 @@ void MainWindow::createUi() {
             min-height: 26px;
             selection-background-color: #1e6f86;
         }
+        QSpinBox, QDoubleSpinBox {
+            padding-right: 18px;
+        }
+        QSpinBox::up-button, QDoubleSpinBox::up-button {
+            subcontrol-origin: border;
+            subcontrol-position: top right;
+            width: 16px;
+            border-left: 1px solid #33465f;
+            border-bottom: 1px solid #263447;
+            border-top-right-radius: 5px;
+            background: #1b2a3e;
+        }
+        QSpinBox::down-button, QDoubleSpinBox::down-button {
+            subcontrol-origin: border;
+            subcontrol-position: bottom right;
+            width: 16px;
+            border-left: 1px solid #33465f;
+            border-bottom-right-radius: 5px;
+            background: #1b2a3e;
+        }
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+        QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+            background: #22344d;
+            border-left-color: #38bdf8;
+        }
         QLineEdit:hover, QSpinBox:hover, QSlider:hover, QDoubleSpinBox:hover {
             border-color: #4a5f78;
             background: #1b2a3e;
@@ -100,6 +126,36 @@ void MainWindow::createUi() {
         QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
             border-color: #38bdf8;
             background: #182b42;
+        }
+        QComboBox {
+            color: #dbe7f5;
+            background: #182436;
+            border: 1px solid #33465f;
+            border-radius: 6px;
+            padding: 5px 28px 5px 8px;
+            min-height: 24px;
+        }
+        QComboBox:hover {
+            color: #f8fbff;
+            background: #22344d;
+            border-color: #38bdf8;
+        }
+        QComboBox:focus {
+            border-color: #38bdf8;
+        }
+        QComboBox::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 24px;
+            border-left: 1px solid #33465f;
+        }
+        QComboBox QAbstractItemView {
+            color: #e5eef8;
+            background: #121c29;
+            border: 1px solid #33465f;
+            selection-background-color: #22344d;
+            selection-color: #ffffff;
+            outline: 0;
         }
         QPushButton, QToolButton {
             color: #dbe7f5;
@@ -216,6 +272,38 @@ void MainWindow::createUi() {
         }
         QDialog QLabel {
             color: #e5eef8;
+        }
+        QFrame#StepperFrame {
+            background: #182436;
+            border: 1px solid #33465f;
+            border-radius: 5px;
+        }
+        QFrame#StepperFrame:focus-within {
+            border-color: #38bdf8;
+        }
+        QLineEdit#StepperEdit {
+            border: none;
+            border-radius: 0px;
+            background: transparent;
+            padding: 0 6px;
+            min-height: 28px;
+        }
+        QPushButton#StepperButton {
+            min-width: 18px;
+            max-width: 18px;
+            min-height: 14px;
+            max-height: 14px;
+            padding: 0px;
+            border-radius: 0px;
+            border: none;
+            border-left: 1px solid #33465f;
+            background: #1b2a3e;
+            color: #e5eef8;
+            font-size: 9px;
+        }
+        QPushButton#StepperButton:hover {
+            background: #22344d;
+            color: #ffffff;
         }
     )");
 
@@ -341,6 +429,18 @@ void MainWindow::createUi() {
     m_infoLabel->setObjectName(QStringLiteral("MutedText"));
     m_chainLabel = new QLabel(QString::fromUtf8(u8"当前处理：无"), workbench);
     m_chainLabel->setObjectName(QStringLiteral("MutedText"));
+    m_parameterLabel = new QLabel(QString::fromUtf8(u8"参数记录：无"), workbench);
+    m_parameterLabel->setObjectName(QStringLiteral("MutedText"));
+    m_chainLabel->setVisible(false);
+    m_parameterLabel->setVisible(false);
+    m_chainCombo = new QComboBox(workbench);
+    m_chainCombo->setCursor(Qt::PointingHandCursor);
+    m_chainCombo->setMinimumWidth(260);
+    m_chainCombo->addItem(QString::fromUtf8(u8"当前处理：无"));
+    m_parameterCombo = new QComboBox(workbench);
+    m_parameterCombo->setCursor(Qt::PointingHandCursor);
+    m_parameterCombo->setMinimumWidth(260);
+    m_parameterCombo->addItem(QString::fromUtf8(u8"参数记录：无"));
     m_zoomLabel = new QLabel(QStringLiteral("100%"), workbench);
     m_zoomLabel->setObjectName(QStringLiteral("MutedText"));
     m_histogramLabel = new QLabel(QString::fromUtf8(u8"直方图"), workbench);
@@ -350,8 +450,13 @@ void MainWindow::createUi() {
     m_folderLabel = new QLabel(workbench);
     m_folderLabel->setVisible(false);
     m_previewHint = nullptr;
+    auto* textStatusLayout = new QVBoxLayout();
+    textStatusLayout->setContentsMargins(0, 0, 0, 0);
+    textStatusLayout->setSpacing(4);
+    textStatusLayout->addWidget(m_chainCombo);
+    textStatusLayout->addWidget(m_parameterCombo);
     statusRow->addWidget(m_infoLabel, 2);
-    statusRow->addWidget(m_chainLabel, 3);
+    statusRow->addLayout(textStatusLayout, 3);
     statusRow->addWidget(m_histogramLabel, 0);
     statusRow->addWidget(m_zoomLabel, 0);
     rootLayout->addLayout(statusRow);
@@ -2031,6 +2136,11 @@ bool MainWindow::isSupportedImageFile(const QString& filePath) const {
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
+    if (!isDropOnOriginalView(event->position().toPoint())) {
+        event->ignore();
+        return;
+    }
+
     if (!event->mimeData()->hasUrls()) {
         event->ignore();
         return;
@@ -2048,6 +2158,11 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
 }
 
 void MainWindow::dropEvent(QDropEvent* event) {
+    if (!isDropOnOriginalView(event->position().toPoint())) {
+        event->ignore();
+        return;
+    }
+
     if (!event->mimeData()->hasUrls()) {
         event->ignore();
         return;
@@ -2083,6 +2198,15 @@ void MainWindow::dropEvent(QDropEvent* event) {
     }
 
     event->ignore();
+}
+
+bool MainWindow::isDropOnOriginalView(const QPoint& windowPos) const {
+    if (!m_imageView || !m_imageView->isVisible()) {
+        return false;
+    }
+
+    const QPoint viewPos = m_imageView->mapFrom(this, windowPos);
+    return m_imageView->rect().contains(viewPos);
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event) {
@@ -2226,6 +2350,8 @@ void MainWindow::displayImage(const QString& filePath) {
     m_resultHistory.clear();
     m_chainHistory.clear();
     m_processingChain.clear();
+    m_parameterHistory.clear();
+    m_parameterRecords.clear();
     m_historyIndex = -1;
     m_frequencyIfftSource = {};
 
@@ -2547,10 +2673,14 @@ void MainWindow::pushProcessingResult(const QImage& image, const QString& action
     while (m_chainHistory.size() > m_historyIndex + 1) {
         m_chainHistory.removeLast();
     }
+    while (m_parameterHistory.size() > m_historyIndex + 1) {
+        m_parameterHistory.removeLast();
+    }
 
     m_processingChain.append(actionName);
     m_resultHistory.append(image);
     m_chainHistory.append(m_processingChain);
+    m_parameterHistory.append(m_parameterRecords);
     m_historyIndex = m_resultHistory.size() - 1;
     m_filteredImage = image;
     refreshWorkbenchImages();
@@ -2594,6 +2724,18 @@ void MainWindow::refreshWorkbenchImages() {
 }
 
 void MainWindow::updateProcessingStatus(const QString& message) {
+    if (m_chainCombo) {
+        m_chainCombo->clear();
+        if (m_processingChain.isEmpty()) {
+            m_chainCombo->addItem(QString::fromUtf8(u8"当前处理：无"));
+        } else {
+            m_chainCombo->addItem(QString::fromUtf8(u8"当前处理"));
+            for (int i = 0; i < m_processingChain.size(); ++i) {
+                m_chainCombo->addItem(QStringLiteral("%1. %2").arg(i + 1).arg(m_processingChain.at(i)));
+            }
+        }
+        m_chainCombo->setCurrentIndex(0);
+    }
     if (m_chainLabel) {
         const QString chain = m_processingChain.isEmpty()
             ? QString::fromUtf8(u8"当前处理：无")
@@ -2612,6 +2754,29 @@ void MainWindow::updateProcessingStatus(const QString& message) {
     if (!message.isEmpty()) {
         statusBar()->showMessage(message);
     }
+    updateParameterStatus();
+}
+
+void MainWindow::updateParameterStatus() {
+    if (m_parameterCombo) {
+        m_parameterCombo->clear();
+        if (m_parameterRecords.isEmpty()) {
+            m_parameterCombo->addItem(QString::fromUtf8(u8"参数记录：无"));
+        } else {
+            m_parameterCombo->addItem(QString::fromUtf8(u8"参数记录"));
+            for (int i = 0; i < m_parameterRecords.size(); ++i) {
+                m_parameterCombo->addItem(QStringLiteral("%1. %2").arg(i + 1).arg(m_parameterRecords.at(i)));
+            }
+        }
+        m_parameterCombo->setCurrentIndex(0);
+    }
+    if (!m_parameterLabel) {
+        return;
+    }
+    const QString text = m_parameterRecords.isEmpty()
+        ? QString::fromUtf8(u8"参数记录：无")
+        : QString::fromUtf8(u8"参数记录：") + m_parameterRecords.join(QString::fromUtf8(u8"；"));
+    m_parameterLabel->setText(text);
 }
 
 void MainWindow::undoProcessing() {
@@ -2620,6 +2785,7 @@ void MainWindow::undoProcessing() {
     }
     --m_historyIndex;
     m_processingChain = m_historyIndex >= 0 ? m_chainHistory.value(m_historyIndex) : QStringList();
+    m_parameterRecords = m_historyIndex >= 0 ? m_parameterHistory.value(m_historyIndex) : QStringList();
     refreshWorkbenchImages();
     updateProcessingStatus(QString::fromUtf8(u8"已撤回上一步处理"));
 }
@@ -2630,6 +2796,7 @@ void MainWindow::redoProcessing() {
     }
     ++m_historyIndex;
     m_processingChain = m_chainHistory.value(m_historyIndex);
+    m_parameterRecords = m_parameterHistory.value(m_historyIndex);
     refreshWorkbenchImages();
     updateProcessingStatus(QString::fromUtf8(u8"已前进到下一步处理"));
 }
@@ -2638,6 +2805,8 @@ void MainWindow::resetProcessing() {
     m_resultHistory.clear();
     m_chainHistory.clear();
     m_processingChain.clear();
+    m_parameterHistory.clear();
+    m_parameterRecords.clear();
     m_historyIndex = -1;
     m_filteredImage = {};
     m_frequencyIfftSource = {};
@@ -2650,6 +2819,65 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载影像"));
         return;
     }
+
+    auto makeNumberStepper = [](QDialog* dialog, double initial, double minValue, double maxValue, double step, int decimals, QLineEdit** editOut) {
+        auto* frame = new QFrame(dialog);
+        frame->setObjectName(QStringLiteral("StepperFrame"));
+        frame->setFixedSize(128, 30);
+        auto* layout = new QHBoxLayout(frame);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(0);
+
+        auto* edit = new QLineEdit(frame);
+        edit->setObjectName(QStringLiteral("StepperEdit"));
+        edit->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        edit->setText(decimals == 0
+            ? QString::number(static_cast<int>(initial))
+            : QString::number(initial, 'f', decimals));
+
+        auto* buttonColumn = new QVBoxLayout();
+        buttonColumn->setContentsMargins(0, 0, 0, 0);
+        buttonColumn->setSpacing(0);
+        auto* upButton = new QPushButton(QString::fromUtf8(u8"▲"), frame);
+        auto* downButton = new QPushButton(QString::fromUtf8(u8"▼"), frame);
+        upButton->setObjectName(QStringLiteral("StepperButton"));
+        downButton->setObjectName(QStringLiteral("StepperButton"));
+        upButton->setCursor(Qt::PointingHandCursor);
+        downButton->setCursor(Qt::PointingHandCursor);
+        buttonColumn->addWidget(upButton);
+        buttonColumn->addWidget(downButton);
+
+        auto parseValue = [edit, initial]() {
+            bool ok = false;
+            const double value = edit->text().toDouble(&ok);
+            return ok ? value : initial;
+        };
+        auto setValue = [edit, minValue, maxValue, decimals](double value) {
+            value = std::clamp(value, minValue, maxValue);
+            edit->setText(decimals == 0
+                ? QString::number(static_cast<int>(std::round(value)))
+                : QString::number(value, 'f', decimals));
+        };
+        connect(upButton, &QPushButton::clicked, frame, [parseValue, setValue, step]() {
+            setValue(parseValue() + step);
+        });
+        connect(downButton, &QPushButton::clicked, frame, [parseValue, setValue, step]() {
+            setValue(parseValue() - step);
+        });
+        connect(edit, &QLineEdit::editingFinished, frame, [parseValue, setValue]() {
+            setValue(parseValue());
+        });
+
+        layout->addWidget(edit, 1);
+        layout->addLayout(buttonColumn);
+        *editOut = edit;
+        return frame;
+    };
+    auto stepperValue = [](QLineEdit* edit, double fallback) {
+        bool ok = false;
+        const double value = edit ? edit->text().toDouble(&ok) : fallback;
+        return ok ? value : fallback;
+    };
 
     auto askNoiseDensity = [this](double* density) {
         QDialog dialog(this);
@@ -2675,41 +2903,41 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         return true;
     };
 
-    auto askKernel = [this](int* kernelSize) {
+    auto askKernel = [this, &makeNumberStepper, &stepperValue](int* kernelSize) {
         QDialog dialog(this);
         dialog.setWindowTitle(QString::fromUtf8(u8"滤波参数"));
         auto* layout = new QGridLayout(&dialog);
-        auto* spin = new QSpinBox(&dialog);
+        QLineEdit* kernelEdit = nullptr;
+        QWidget* kernelStepper = makeNumberStepper(&dialog, 3.0, 3.0, 15.0, 2.0, 0, &kernelEdit);
         auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
-        spin->setRange(3, 15);
-        spin->setSingleStep(2);
-        spin->setValue(3);
         layout->addWidget(new QLabel(QString::fromUtf8(u8"核大小"), &dialog), 0, 0);
-        layout->addWidget(spin, 0, 1);
+        layout->addWidget(kernelStepper, 0, 1, Qt::AlignLeft);
         layout->addWidget(apply, 1, 1);
         connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
         if (dialog.exec() != QDialog::Accepted) {
             return false;
         }
-        *kernelSize = spin->value();
+        *kernelSize = static_cast<int>(std::round(stepperValue(kernelEdit, 3.0)));
+        if (*kernelSize % 2 == 0) {
+            ++(*kernelSize);
+        }
+        *kernelSize = std::clamp(*kernelSize, 3, 15);
         return true;
     };
 
-    auto askEdgeParams = [this](int* kernelSize, int* threshold) {
+    auto askEdgeParams = [this, &makeNumberStepper, &stepperValue](int* kernelSize, int* threshold) {
         QDialog dialog(this);
         dialog.setWindowTitle(QString::fromUtf8(u8"边缘参数"));
         auto* layout = new QGridLayout(&dialog);
-        auto* spin = new QSpinBox(&dialog);
+        QLineEdit* kernelEdit = nullptr;
+        QWidget* kernelStepper = makeNumberStepper(&dialog, 3.0, 3.0, 5.0, 2.0, 0, &kernelEdit);
         auto* slider = new QSlider(Qt::Horizontal, &dialog);
         auto* value = new QLabel(QStringLiteral("80"), &dialog);
         auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
-        spin->setRange(3, 5);
-        spin->setSingleStep(2);
-        spin->setValue(3);
         slider->setRange(0, 255);
         slider->setValue(80);
         layout->addWidget(new QLabel(QString::fromUtf8(u8"核大小"), &dialog), 0, 0);
-        layout->addWidget(spin, 0, 1);
+        layout->addWidget(kernelStepper, 0, 1, Qt::AlignLeft);
         layout->addWidget(new QLabel(QString::fromUtf8(u8"阈值"), &dialog), 1, 0);
         layout->addWidget(slider, 1, 1);
         layout->addWidget(value, 1, 2);
@@ -2721,28 +2949,30 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (dialog.exec() != QDialog::Accepted) {
             return false;
         }
-        *kernelSize = spin->value();
+        *kernelSize = static_cast<int>(std::round(stepperValue(kernelEdit, 3.0)));
+        if (*kernelSize % 2 == 0) {
+            ++(*kernelSize);
+        }
+        *kernelSize = std::clamp(*kernelSize, 3, 5);
         *threshold = slider->value();
         return true;
     };
 
-    auto askGamma = [this](double* gamma) {
+    auto askGamma = [this, &makeNumberStepper, &stepperValue](double* gamma) {
         QDialog dialog(this);
         dialog.setWindowTitle(QString::fromUtf8(u8"Gamma 参数"));
         auto* layout = new QGridLayout(&dialog);
-        auto* spin = new QDoubleSpinBox(&dialog);
+        QLineEdit* gammaEdit = nullptr;
+        QWidget* gammaStepper = makeNumberStepper(&dialog, 0.8, 0.1, 5.0, 0.1, 2, &gammaEdit);
         auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
-        spin->setRange(0.1, 5.0);
-        spin->setSingleStep(0.1);
-        spin->setValue(0.8);
         layout->addWidget(new QLabel(QStringLiteral("Gamma"), &dialog), 0, 0);
-        layout->addWidget(spin, 0, 1);
+        layout->addWidget(gammaStepper, 0, 1, Qt::AlignLeft);
         layout->addWidget(apply, 1, 1);
         connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
         if (dialog.exec() != QDialog::Accepted) {
             return false;
         }
-        *gamma = spin->value();
+        *gamma = std::clamp(stepperValue(gammaEdit, 0.8), 0.1, 5.0);
         return true;
     };
 
@@ -2777,53 +3007,85 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         formLayout->setColumnStretch(1, 1);
 
         int row = 0;
-        auto addSpinRow = [&](const QString& labelText, QSpinBox* spin) {
-            spin->setMinimumWidth(190);
-            formLayout->addWidget(new QLabel(labelText, &dialog), row, 0);
-            formLayout->addWidget(spin, row, 1);
-            ++row;
+        auto makeNumberStepper = [&](double initial, double minValue, double maxValue, double step, int decimals, QLineEdit** editOut) {
+            auto* frame = new QFrame(&dialog);
+            frame->setObjectName(QStringLiteral("StepperFrame"));
+            frame->setFixedSize(128, 30);
+            auto* layout = new QHBoxLayout(frame);
+            layout->setContentsMargins(0, 0, 0, 0);
+            layout->setSpacing(0);
+
+            auto* edit = new QLineEdit(frame);
+            edit->setObjectName(QStringLiteral("StepperEdit"));
+            edit->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+            edit->setText(decimals == 0
+                ? QString::number(static_cast<int>(initial))
+                : QString::number(initial, 'f', decimals));
+
+            auto* buttonColumn = new QVBoxLayout();
+            buttonColumn->setContentsMargins(0, 0, 0, 0);
+            buttonColumn->setSpacing(0);
+            auto* upButton = new QPushButton(QStringLiteral("▲"), frame);
+            auto* downButton = new QPushButton(QStringLiteral("▼"), frame);
+            upButton->setObjectName(QStringLiteral("StepperButton"));
+            downButton->setObjectName(QStringLiteral("StepperButton"));
+            upButton->setCursor(Qt::PointingHandCursor);
+            downButton->setCursor(Qt::PointingHandCursor);
+            buttonColumn->addWidget(upButton);
+            buttonColumn->addWidget(downButton);
+
+            auto parseValue = [edit, initial]() {
+                bool ok = false;
+                const double value = edit->text().toDouble(&ok);
+                return ok ? value : initial;
+            };
+            auto setValue = [edit, minValue, maxValue, decimals](double value) {
+                value = std::clamp(value, minValue, maxValue);
+                edit->setText(decimals == 0
+                    ? QString::number(static_cast<int>(std::round(value)))
+                    : QString::number(value, 'f', decimals));
+            };
+            connect(upButton, &QPushButton::clicked, frame, [parseValue, setValue, step]() {
+                setValue(parseValue() + step);
+            });
+            connect(downButton, &QPushButton::clicked, frame, [parseValue, setValue, step]() {
+                setValue(parseValue() - step);
+            });
+            connect(edit, &QLineEdit::editingFinished, frame, [parseValue, setValue]() {
+                setValue(parseValue());
+            });
+
+            layout->addWidget(edit, 1);
+            layout->addLayout(buttonColumn);
+            *editOut = edit;
+            return frame;
         };
-        auto addDoubleRow = [&](const QString& labelText, QDoubleSpinBox* spin) {
-            spin->setMinimumWidth(190);
+        auto stepperValue = [](QLineEdit* edit, double fallback) {
+            bool ok = false;
+            const double value = edit ? edit->text().toDouble(&ok) : fallback;
+            return ok ? value : fallback;
+        };
+        auto addNumberRow = [&](const QString& labelText, QWidget* editor) {
             formLayout->addWidget(new QLabel(labelText, &dialog), row, 0);
-            formLayout->addWidget(spin, row, 1);
+            formLayout->addWidget(editor, row, 1, Qt::AlignLeft);
             ++row;
         };
 
-        auto* cutoffSpin = new QSpinBox(&dialog);
-        cutoffSpin->setRange(1, 4096);
-        cutoffSpin->setValue(static_cast<int>(*cutoff));
-        addSpinRow(QString::fromUtf8(u8"截止半径"), cutoffSpin);
+        QLineEdit* cutoffEdit = nullptr;
+        addNumberRow(QString::fromUtf8(u8"截止半径"), makeNumberStepper(*cutoff, 1.0, 4096.0, 1.0, 0, &cutoffEdit));
 
-        QSpinBox* orderSpin = nullptr;
+        QLineEdit* orderEdit = nullptr;
         if (needsOrder) {
-            orderSpin = new QSpinBox(&dialog);
-            orderSpin->setRange(1, 10);
-            orderSpin->setValue(*order);
-            addSpinRow(QString::fromUtf8(u8"阶数"), orderSpin);
+            addNumberRow(QString::fromUtf8(u8"阶数"), makeNumberStepper(*order, 1.0, 10.0, 1.0, 0, &orderEdit));
         }
 
-        QDoubleSpinBox* gammaLowSpin = nullptr;
-        QDoubleSpinBox* gammaHighSpin = nullptr;
-        QDoubleSpinBox* cSpin = nullptr;
+        QLineEdit* gammaLowEdit = nullptr;
+        QLineEdit* gammaHighEdit = nullptr;
+        QLineEdit* cEdit = nullptr;
         if (needsHomomorphic) {
-            gammaLowSpin = new QDoubleSpinBox(&dialog);
-            gammaLowSpin->setRange(0.01, 5.0);
-            gammaLowSpin->setSingleStep(0.05);
-            gammaLowSpin->setValue(*gammaLow);
-            addDoubleRow(QStringLiteral("γL"), gammaLowSpin);
-
-            gammaHighSpin = new QDoubleSpinBox(&dialog);
-            gammaHighSpin->setRange(0.01, 5.0);
-            gammaHighSpin->setSingleStep(0.05);
-            gammaHighSpin->setValue(*gammaHigh);
-            addDoubleRow(QStringLiteral("γH"), gammaHighSpin);
-
-            cSpin = new QDoubleSpinBox(&dialog);
-            cSpin->setRange(0.01, 10.0);
-            cSpin->setSingleStep(0.1);
-            cSpin->setValue(*c);
-            addDoubleRow(QStringLiteral("c"), cSpin);
+            addNumberRow(QStringLiteral("γL"), makeNumberStepper(*gammaLow, 0.01, 5.0, 0.05, 2, &gammaLowEdit));
+            addNumberRow(QStringLiteral("γH"), makeNumberStepper(*gammaHigh, 0.01, 5.0, 0.05, 2, &gammaHighEdit));
+            addNumberRow(QStringLiteral("c"), makeNumberStepper(*c, 0.01, 10.0, 0.1, 2, &cEdit));
         }
 
         rootLayout->addLayout(formLayout);
@@ -2845,24 +3107,25 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
             return false;
         }
 
-        *cutoff = cutoffSpin->value();
-        if (orderSpin) {
-            *order = orderSpin->value();
+        *cutoff = stepperValue(cutoffEdit, *cutoff);
+        if (orderEdit) {
+            *order = static_cast<int>(std::round(stepperValue(orderEdit, *order)));
         }
-        if (gammaLowSpin) {
-            *gammaLow = gammaLowSpin->value();
+        if (gammaLowEdit) {
+            *gammaLow = stepperValue(gammaLowEdit, *gammaLow);
         }
-        if (gammaHighSpin) {
-            *gammaHigh = gammaHighSpin->value();
+        if (gammaHighEdit) {
+            *gammaHigh = stepperValue(gammaHighEdit, *gammaHigh);
         }
-        if (cSpin) {
-            *c = cSpin->value();
+        if (cEdit) {
+            *c = stepperValue(cEdit, *c);
         }
         return true;
     };
 
     QImage input = currentProcessingInput();
     QImage result;
+    QString parameterRecord;
 
     if (actionName == QString::fromUtf8(u8"原图")) {
         result = m_originalImage;
@@ -2894,6 +3157,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (!askNoiseDensity(&density)) {
             return;
         }
+        parameterRecord = QStringLiteral("%1: 强度=%2%").arg(actionName).arg(static_cast<int>(density * 100));
         result = actionName == QString::fromUtf8(u8"椒盐噪声")
             ? ImageLabProcessor::addSaltPepperNoise(input, density)
             : ImageLabProcessor::addImpulseNoise(input, density);
@@ -2904,6 +3168,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (!askKernel(&kernelSize)) {
             return;
         }
+        parameterRecord = QStringLiteral("%1: 核大小=%2").arg(actionName).arg(kernelSize);
         if (actionName == QString::fromUtf8(u8"均值滤波")) {
             result = ImageLabProcessor::meanFilter(input, kernelSize);
         } else if (actionName == QString::fromUtf8(u8"中值滤波")) {
@@ -2919,6 +3184,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (!askEdgeParams(&kernelSize, &threshold)) {
             return;
         }
+        parameterRecord = QStringLiteral("%1: 核大小=%2, 阈值=%3").arg(actionName).arg(kernelSize).arg(threshold);
         if (actionName == QString::fromUtf8(u8"Sobel")) {
             result = ImageLabProcessor::sobelEdgeDetect(input, kernelSize, threshold);
         } else if (actionName == QString::fromUtf8(u8"Prewitt")) {
@@ -2943,6 +3209,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (!askGamma(&gamma)) {
             return;
         }
+        parameterRecord = QStringLiteral("%1: Gamma=%2").arg(actionName).arg(gamma, 0, 'f', 2);
         result = ImageLabProcessor::step8_gammaTransform(input, gamma);
     } else if (actionName == QString::fromUtf8(u8"FFT 频谱") ||
                actionName == QString::fromUtf8(u8"IFFT 重建") ||
@@ -2959,6 +3226,18 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (!askFrequencyParams(actionName, &cutoff, &order, &gammaLow, &gammaHigh, &c)) {
             return;
         }
+        if (actionName == QString::fromUtf8(u8"理想低通") || actionName == QString::fromUtf8(u8"理想高通")) {
+            parameterRecord = QStringLiteral("%1: 截止半径=%2").arg(actionName).arg(cutoff, 0, 'f', 0);
+        } else if (actionName == QString::fromUtf8(u8"巴特沃斯低通") || actionName == QString::fromUtf8(u8"巴特沃斯高通")) {
+            parameterRecord = QStringLiteral("%1: 截止半径=%2, 阶数=%3").arg(actionName).arg(cutoff, 0, 'f', 0).arg(order);
+        } else if (actionName == QString::fromUtf8(u8"同态滤波")) {
+            parameterRecord = QStringLiteral("%1: 截止半径=%2, γL=%3, γH=%4, c=%5")
+                .arg(actionName)
+                .arg(cutoff, 0, 'f', 0)
+                .arg(gammaLow, 0, 'f', 2)
+                .arg(gammaHigh, 0, 'f', 2)
+                .arg(c, 0, 'f', 2);
+        }
         if (actionName == QString::fromUtf8(u8"FFT 频谱")) {
             m_frequencyIfftSource = input;
             result = FourierExperimentWidget::processFrequencyImage(input, actionName, cutoff, order, gammaLow, gammaHigh, c);
@@ -2972,6 +3251,9 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         }
     }
 
+    if (!parameterRecord.isEmpty()) {
+        m_parameterRecords.append(parameterRecord);
+    }
     pushProcessingResult(result, actionName);
 }
 

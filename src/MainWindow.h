@@ -14,6 +14,7 @@ class ImageView;
 class QListWidgetItem;
 class QDragEnterEvent;
 class QDropEvent;
+class QPoint;
 class QPushButton;
 class QSlider;
 class QStackedWidget;
@@ -94,6 +95,8 @@ private:
     QImage currentProcessingInput() const;
     void refreshWorkbenchImages();
     void updateProcessingStatus(const QString& message = QString());
+    void updateParameterStatus();
+    bool isDropOnOriginalView(const QPoint& windowPos) const;
     bool isSupportedImageFile(const QString& filePath) const;
     QImage applyFilter(const QImage& img, const QString& filterName) const;
     QImage convolve(const QImage& img, const QVector<float>& kernel, float divisor, float bias = 0.0f) const;
@@ -138,6 +141,9 @@ private:
     QLabel* m_zoomLabel = nullptr;
     QLabel* m_previewHint = nullptr;
     QLabel* m_chainLabel = nullptr;
+    QLabel* m_parameterLabel = nullptr;
+    QComboBox* m_chainCombo = nullptr;
+    QComboBox* m_parameterCombo = nullptr;
     QComboBox* m_filterCombo = nullptr;
     ImageView* m_imageView = nullptr;
     ImageView* m_resultView = nullptr;
@@ -170,6 +176,8 @@ private:
     QVector<QImage> m_resultHistory;
     QVector<QStringList> m_chainHistory;
     QStringList m_processingChain;
+    QVector<QStringList> m_parameterHistory;
+    QStringList m_parameterRecords;
     int m_historyIndex = -1;
     bool m_fitOnNextRefresh = false;
     QImage m_frequencyIfftSource;
