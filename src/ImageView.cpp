@@ -15,7 +15,7 @@ ImageView::ImageView(QWidget* parent) : QGraphicsView(parent) {
     setScene(m_scene);
     m_item = m_scene->addPixmap(QPixmap());
 
-    setBackgroundBrush(QColor("#0f172a"));
+    setBackgroundBrush(QColor("#090d13"));
     setFrameShape(QFrame::NoFrame);
     setMouseTracking(true);
     setAlignment(Qt::AlignCenter);
