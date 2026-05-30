@@ -1,9 +1,10 @@
-#include "MainWindow.h"
+﻿#include "MainWindow.h"
 
 #include "BMPReader.h"
 #include "FourierExperimentWidget.h"
 #include "ImageHistTools.h"
 #include "ImageLabProcessor.h"
+#include "ImageRestoration.h"
 #include "ImageView.h"
 #include "ui_MainWindow.h"
 
@@ -46,6 +47,7 @@
 #include <cmath>
 #include <random>
 #include <vector>
+
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("医学影像分析平台"));
@@ -148,6 +150,15 @@ void MainWindow::createUi() {
             subcontrol-position: top right;
             width: 24px;
             border-left: 1px solid #33465f;
+        }
+        QComboBox::down-arrow {
+            image: none;
+            width: 0px;
+            height: 0px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid #8fa3bb;
+            margin-right: 8px;
         }
         QComboBox QAbstractItemView {
             color: #e5eef8;
@@ -358,7 +369,7 @@ void MainWindow::createUi() {
     }
 
     auto* noiseMenu = new QMenu(this);
-    for (const QString& item : {QString::fromUtf8(u8"椒盐噪声"), QString::fromUtf8(u8"脉冲噪声"),
+    for (const QString& item : {QString::fromUtf8(u8"椒盐噪声"), QString::fromUtf8(u8"脉冲噪声"), QString::fromUtf8(u8"高斯噪声"),
          QString::fromUtf8(u8"均值滤波"), QString::fromUtf8(u8"中值滤波"), QString::fromUtf8(u8"最大值滤波")}) {
         addAction(noiseMenu, item);
     }
@@ -382,6 +393,12 @@ void MainWindow::createUi() {
         addAction(frequencyMenu, item);
     }
 
+    auto* restorationMenu = new QMenu(this);
+    for (const QString& item : {QString::fromUtf8(u8"图像退化"), QString::fromUtf8(u8"逆滤波复原"),
+         QString::fromUtf8(u8"截止半径逆滤波"), QString::fromUtf8(u8"维纳滤波复原")}) {
+        addAction(restorationMenu, item);
+    }
+
     topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"影像输入"), inputMenu));
     topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"基础显示"), displayMenu));
     topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"直方图增强"), histMenu));
@@ -389,6 +406,7 @@ void MainWindow::createUi() {
     topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"边缘结构"), edgeMenu));
     topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"图像增强"), enhanceMenu));
     topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"频域分析"), frequencyMenu));
+    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"图像复原"), restorationMenu));
     topLayout->addStretch(1);
 
     m_undoButton = new QPushButton(QString::fromUtf8(u8"撤回"), topBar);
@@ -492,7 +510,7 @@ QWidget* MainWindow::createExperimentPage() {
     titleLayout->setSpacing(4);
     auto* title = new QLabel(QString::fromUtf8(u8"功能分析"), titleCard);
     title->setObjectName("SectionTitle");
-    auto* subtitle = new QLabel(QString::fromUtf8(u8"左侧选择功能模块，右侧加载对应处理界面"), titleCard);
+    auto* subtitle = new QLabel(QString::fromUtf8(u8"左侧选择功能模块，右侧加载对应处理界无"), titleCard);
     subtitle->setObjectName("SmallLabel");
     titleLayout->addWidget(title);
     titleLayout->addWidget(subtitle);
@@ -907,7 +925,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     infoCard->setObjectName("Card");
     auto* infoLayout = new QVBoxLayout(infoCard);
     infoLayout->setContentsMargins(16, 14, 16, 14);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强。"), infoCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强无"), infoCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     infoLayout->addWidget(m_enhancementInfoLabel);
@@ -929,7 +947,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     m_enhancementDetailBadgeLabel = new QLabel(QString::fromUtf8(u8"第1步"), detailCard);
     m_enhancementDetailBadgeLabel->setObjectName(QStringLiteral("ThemeBadge"));
     detailTop->addWidget(m_enhancementDetailBadgeLabel, 0, Qt::AlignLeft);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强。"), detailCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强无"), detailCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     detailTop->addWidget(m_enhancementInfoLabel, 1);
@@ -1015,7 +1033,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     infoCard->setObjectName("Card");
     auto* infoLayout = new QVBoxLayout(infoCard);
     infoLayout->setContentsMargins(16, 12, 16, 12);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强。"), infoCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强无"), infoCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     infoLayout->addWidget(m_enhancementInfoLabel);
@@ -1070,7 +1088,7 @@ bool MainWindow::saveImageToFile(const QImage& image, const QString& suggestedNa
     }
 
     if (!image.save(filePath)) {
-        QMessageBox::critical(this, QString::fromUtf8(u8"保存失败"), QString::fromUtf8(u8"图像保存失败，请检查文件路径或格式。"));
+        QMessageBox::critical(this, QString::fromUtf8(u8"保存失败"), QString::fromUtf8(u8"图像保存失败，请检查文件路径或格式："));
         return false;
     }
 
@@ -1132,7 +1150,7 @@ void MainWindow::updateEnhancementExperimentPreview() {
 
 void MainWindow::updateEnhancementDetailPreview(int stepIndex, const QImage& image, const QString& description) {
     if (m_enhancementDetailBadgeLabel) {
-        m_enhancementDetailBadgeLabel->setText(QString::fromUtf8(u8"第%1步").arg(stepIndex <= 0 ? 1 : stepIndex));
+        m_enhancementDetailBadgeLabel->setText(QString::fromUtf8(u8"无1无").arg(stepIndex <= 0 ? 1 : stepIndex));
     }
     if (m_enhancementInfoLabel) {
         m_enhancementInfoLabel->setText(description);
@@ -1331,11 +1349,11 @@ void MainWindow::addNoiseToExperiment() {
     } else if (noiseType == QString::fromUtf8(u8"脉冲噪声")) {
         m_noiseNoisyImage = ImageLabProcessor::addImpulseNoise(m_noiseSourceImage, density);
     } else {
-        m_noiseNoisyImage = ImageLabProcessor::addSaltPepperNoise(m_noiseSourceImage, density);
+        m_noiseNoisyImage = ImageLabProcessor::addGaussianNoise(m_noiseSourceImage, 0.0, density * 100.0);
     }
     updateNoiseExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已添加噪声"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已添加噪无"));
     }
     statusBar()->showMessage(QString::fromUtf8(u8"已生成加噪结果"));
 }
@@ -1357,7 +1375,7 @@ void MainWindow::applyNoiseFilterToExperiment() {
     }
     updateNoiseExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已应用滤波"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已应用滤无"));
     }
     statusBar()->showMessage(QString::fromUtf8(u8"去噪结果已更新"));
 }
@@ -1397,8 +1415,8 @@ void MainWindow::saveNoiseExperimentResult() {
     QMessageBox chooser(this);
     chooser.setWindowTitle(QString::fromUtf8(u8"选择保存结果"));
     chooser.setText(QString::fromUtf8(u8"请选择要保存的噪声处理结果图像"));
-    auto* noisyButton = chooser.addButton(QString::fromUtf8(u8"保存加噪图"), QMessageBox::AcceptRole);
-    auto* denoisedButton = chooser.addButton(QString::fromUtf8(u8"保存去噪图"), QMessageBox::AcceptRole);
+    auto* noisyButton = chooser.addButton(QString::fromUtf8(u8"保存加噪无"), QMessageBox::AcceptRole);
+    auto* denoisedButton = chooser.addButton(QString::fromUtf8(u8"保存去噪无"), QMessageBox::AcceptRole);
     chooser.addButton(QString::fromUtf8(u8"取消"), QMessageBox::RejectRole);
     chooser.exec();
 
@@ -1430,7 +1448,7 @@ void MainWindow::onExperimentNoiseControlsChanged() {
         } else if (noiseType == QString::fromUtf8(u8"脉冲噪声")) {
             m_noiseNoisyImage = ImageLabProcessor::addImpulseNoise(m_noiseSourceImage, density);
         } else {
-            m_noiseNoisyImage = ImageLabProcessor::addSaltPepperNoise(m_noiseSourceImage, density);
+            m_noiseNoisyImage = ImageLabProcessor::addGaussianNoise(m_noiseSourceImage, 0.0, density * 100.0);
         }
         }
         if (!m_noiseDenoisedImage.isNull()) {
@@ -1465,9 +1483,9 @@ void MainWindow::loadEdgeExperimentImage() {
     }
     updateEdgeExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载边缘检测输入图像"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载边缘检测输入图无"));
     }
-    statusBar()->showMessage(QString::fromUtf8(u8"边缘检测输入图像已加载：") + QFileInfo(filePath).fileName());
+    statusBar()->showMessage(QString::fromUtf8(u8"边缘检测输入图像已加载无") + QFileInfo(filePath).fileName());
 }
 
 QImage MainWindow::sobelEdgeDetect(const QImage& img, int kernelSize, int threshold) const {
@@ -1711,8 +1729,8 @@ void MainWindow::loadEnhancementExperimentImage() {
     }
 
     m_enhancementSourcePath = filePath;
-    m_enhancementSourceImage = image;
     resetEnhancementExperiment();
+    m_enhancementSourcePath = filePath;
     m_enhancementSourceImage = image;
     m_enhancementStep1Image = ImageLabProcessor::step1_originalImage(image);
     m_enhancementPreviewStep = 1;
@@ -1721,10 +1739,10 @@ void MainWindow::loadEnhancementExperimentImage() {
     }
     updateEnhancementExperimentPreview();
     if (m_enhancementInfoLabel) {
-        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：图像已加载，可以开始执行增强流程。"));
+        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：图像已加载，可以开始执行增强流程无"));
     }
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载图像增强输入图像"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载图像增强输入图无"));
     }
     statusBar()->showMessage(QString::fromUtf8(u8"图像增强输入图像已加载：") + QFileInfo(filePath).fileName());
 }
@@ -1901,7 +1919,7 @@ void MainWindow::startEnhancementExperiment() {
 
     updateEnhancementExperimentPreview();
     if (m_enhancementInfoLabel) {
-        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已完成 8 步图像增强流程，可点击任意步骤查看对应中间结果。"));
+        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已完成 8 步图像增强流程，可点击任意步骤查看对应中间结果无"));
     }
     if (m_experimentStatusLabel) {
         m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：图像增强流程已完成"));
@@ -1917,7 +1935,7 @@ void MainWindow::stepEnhancementExperiment() {
 
     if (m_enhancementPreviewStep >= 8) {
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：全部步骤已完成，可重新开始或重置。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：全部步骤已完成，可重新开始或重置无"));
         }
         statusBar()->showMessage(QString::fromUtf8(u8"图像增强步骤已全部完成"));
         return;
@@ -1927,49 +1945,49 @@ void MainWindow::stepEnhancementExperiment() {
     case 0:
         m_enhancementStep1Image = ImageLabProcessor::step1_originalImage(m_enhancementSourceImage);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤1，显示并缓存原图像。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤1，显示并缓存原图像"));
         }
         break;
     case 1:
         m_enhancementStep2Image = ImageLabProcessor::step2_laplacianProcess(m_enhancementStep1Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤2，对原图像进行拉普拉斯处理，提取高频细节。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤2，对原图像进行拉普拉斯处理，提取高频细节"));
         }
         break;
     case 2:
         m_enhancementStep3Image = ImageLabProcessor::step3_sharpenImage(m_enhancementStep1Image, m_enhancementStep2Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤3，将原图像与拉普拉斯结果相加，形成锐化图像。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤3，将原图像与拉普拉斯结果相加，形成锐化图像"));
         }
         break;
     case 3:
         m_enhancementStep4Image = ImageLabProcessor::step4_sobelProcess(m_enhancementStep1Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤4，对原图像应用 Sobel 算子，提取梯度信息。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤4，对原图像应用 Sobel 算子，提取梯度信息"));
         }
         break;
     case 4:
         m_enhancementStep5Image = ImageLabProcessor::step5_meanFilterGradient(m_enhancementStep4Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤5，对 Sobel 结果进行均值滤波，得到平滑梯度图像。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤5，对 Sobel 结果进行均值滤波，得到平滑梯度图像"));
         }
         break;
     case 5:
         m_enhancementStep6Image = ImageLabProcessor::step6_maskImage(m_enhancementStep3Image, m_enhancementStep5Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤6，将锐化图像与平滑梯度图像相乘，生成掩膜。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤6，将锐化图像与平滑梯度图像相乘，生成掩膜"));
         }
         break;
     case 6:
         m_enhancementStep7Image = ImageLabProcessor::step7_addOriginalAndMask(m_enhancementStep1Image, m_enhancementStep6Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤7，将原图像与掩膜求和，得到增强图像。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤7，将原图像与掩膜求和，得到增强图像"));
         }
         break;
     case 7:
         m_enhancementStep8Image = ImageLabProcessor::step8_gammaTransform(m_enhancementStep7Image);
         if (m_enhancementInfoLabel) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤8，对增强图像进行伽马变换，优化对比度。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：步骤8，对增强图像进行伽马变换，优化对比度"));
         }
         break;
     default:
@@ -1979,7 +1997,7 @@ void MainWindow::stepEnhancementExperiment() {
     ++m_enhancementPreviewStep;
     updateEnhancementExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已执行增强步骤 ") + QString::number(m_enhancementPreviewStep));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已执行增强步骤") + QString::number(m_enhancementPreviewStep));
     }
     statusBar()->showMessage(QString::fromUtf8(u8"图像增强处理步骤已更新"));
 }
@@ -2001,7 +2019,7 @@ void MainWindow::resetEnhancementExperiment() {
     }
     updateEnhancementExperimentPreview();
     if (m_enhancementInfoLabel) {
-        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已重置，请重新加载图像。"));
+        m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已重置，请重新加载图像"));
     }
     if (m_experimentStatusLabel) {
         m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：图像增强处理已重置"));
@@ -2020,11 +2038,11 @@ void MainWindow::updateEnhancementExperimentPreview() {
     updateExperimentImageLabel(m_enhancementFinalLabel, m_enhancementStep8Image.isNull() ? m_enhancementStep7Image : m_enhancementStep8Image);
     if (m_enhancementInfoLabel) {
         if (!m_enhancementStep8Image.isNull()) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：图像增强流程已完成，左侧显示原图，右侧显示最终结果。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：图像增强流程已完成，左侧显示原图，右侧显示最终结果无"));
         } else if (!m_enhancementStep1Image.isNull()) {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已载入输入图像，可点击“开始增强”或“分布预览”。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已载入输入图像，可点击“开始增强”或“分布预览”无"));
         } else {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：请选择图像并开始增强。"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：请选择图像并开始增强无"));
         }
     }
 }
@@ -2062,8 +2080,8 @@ void MainWindow::showEnhancementPreviewDialog() {
     imageLayout->addWidget(imageLabel, 1);
 
     auto* buttonRow = new QHBoxLayout();
-    auto* prevButton = new QPushButton(QString::fromUtf8(u8"上一页"), &dialog);
-    auto* nextButton = new QPushButton(QString::fromUtf8(u8"下一页"), &dialog);
+    auto* prevButton = new QPushButton(QString::fromUtf8(u8"上一无"), &dialog);
+    auto* nextButton = new QPushButton(QString::fromUtf8(u8"下一无"), &dialog);
     auto* closeButton = new QPushButton(QString::fromUtf8(u8"关闭"), &dialog);
     buttonRow->addWidget(prevButton);
     buttonRow->addWidget(nextButton);
@@ -2089,7 +2107,7 @@ void MainWindow::showEnhancementPreviewDialog() {
         QString::fromUtf8(u8"拉普拉斯处理"),
         QString::fromUtf8(u8"锐化图像"),
         QString::fromUtf8(u8"Sobel 梯度"),
-        QString::fromUtf8(u8"均值滤波梯度"),
+        QString::fromUtf8(u8"均值滤波梯无"),
         QString::fromUtf8(u8"掩膜"),
         QString::fromUtf8(u8"原图与掩膜相加"),
         QString::fromUtf8(u8"伽马变换")
@@ -2098,7 +2116,7 @@ void MainWindow::showEnhancementPreviewDialog() {
     auto refresh = [&]() {
         const int index = qBound(0, dialog.property("stepIndex").toInt(), 7);
         dialog.setProperty("stepIndex", index);
-        badge->setText(QString::fromUtf8(u8"第%1步").arg(index + 1));
+        badge->setText(QString::fromUtf8(u8"无1无").arg(index + 1));
         note->setText(notes[index]);
         const QImage& img = steps[index];
         if (img.isNull()) {
@@ -2220,7 +2238,7 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
 }
 
 void MainWindow::selectFolder() {
-    QString folder = QFileDialog::getExistingDirectory(this, QStringLiteral("请选择图像文件夹"));
+    QString folder = QFileDialog::getExistingDirectory(this, QStringLiteral("Select image folder"));
     if (folder.isEmpty()) {
         return;
     }
@@ -2288,9 +2306,9 @@ void MainWindow::loadImageFiles(const QString& folder) {
         }
     }
 
-    statusBar()->showMessage(QStringLiteral("状态：在文件夹中找到 %1 个支持的图像文件").arg(files.size()));
+    statusBar()->showMessage(QStringLiteral("状态：在文件夹中找无%1 个支持的图像文件").arg(files.size()));
     if (files.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("该文件夹中没有 BMP / JPG / JPEG 文件"));
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("该文件夹中没无BMP / JPG / JPEG 文件"));
         return;
     }
 }
@@ -2357,7 +2375,7 @@ void MainWindow::displayImage(const QString& filePath) {
 
     QString compressionText = (suffix == "bmp")
         ? QString::number(m_currentCompression)
-        : QStringLiteral("由 Qt 内部解码");
+        : QStringLiteral("无Qt 内部解码");
 
     m_infoLabel->setText(
         QStringLiteral("文件：%1\n格式：%2\n尺寸：%3 x %4\n位深：%5 位\n压缩/解码：%6\n像素总数：%7")
@@ -2372,7 +2390,7 @@ void MainWindow::displayImage(const QString& filePath) {
 
     refreshWorkbenchImages();
     updateProcessingStatus(QString::fromUtf8(u8"影像已加载"));
-    statusBar()->showMessage(QStringLiteral("状态：已加载 %1").arg(QFileInfo(filePath).fileName()));
+    statusBar()->showMessage(QStringLiteral("状态：已加载%1").arg(QFileInfo(filePath).fileName()));
 }
 
 void MainWindow::renderCurrentImage() {
@@ -2431,7 +2449,7 @@ void MainWindow::updateHoverInfo(int x, int y, QRgb rgba) {
     QRgb filteredRgba = rgba;
     const QString processText = m_processingChain.isEmpty()
         ? QString::fromUtf8(u8"无")
-        : m_processingChain.join(QString::fromUtf8(u8" → "));
+        : m_processingChain.join(QString::fromUtf8(u8" 步"));
 
     if (!m_filteredImage.isNull() &&
         x >= 0 && y >= 0 &&
@@ -2442,7 +2460,7 @@ void MainWindow::updateHoverInfo(int x, int y, QRgb rgba) {
 
     statusBar()->showMessage(
         QStringLiteral(
-            "状态：文件=%1 | 坐标=(%2, %3) | 原始 RGBA=(%4, %5, %6, %7) | 滤镜后 RGBA=(%8, %9, %10, %11) | 滤镜=%12 | 缩放=%13%"
+            "状态：文件=%1 | 坐标=(%2, %3) | 原始 RGBA=(%4, %5, %6, %7) | 滤镜 RGBA=(%8, %9, %10, %11) | 滤镜=%12 | 缩放=%13%"
         )
             .arg(QFileInfo(m_currentFile).fileName())
             .arg(x)
@@ -2468,16 +2486,26 @@ void MainWindow::updateHoverOutside() {
 }
 
 void MainWindow::showPixelInfo(int x, int y, QRgb rgba) {
+    QRgb originalRgba = rgba;
     QRgb filteredRgba = rgba;
     const QString processText = m_processingChain.isEmpty()
         ? QString::fromUtf8(u8"无")
-        : m_processingChain.join(QString::fromUtf8(u8" → "));
+        : m_processingChain.join(QString::fromUtf8(u8" 步"));
+
+    if (!m_originalImage.isNull() &&
+        x >= 0 && y >= 0 &&
+        x < m_originalImage.width() &&
+        y < m_originalImage.height()) {
+        originalRgba = m_originalImage.pixel(x, y);
+    }
 
     if (!m_filteredImage.isNull() &&
         x >= 0 && y >= 0 &&
         x < m_filteredImage.width() &&
         y < m_filteredImage.height()) {
         filteredRgba = m_filteredImage.pixel(x, y);
+    } else if (sender() == m_resultView) {
+        filteredRgba = rgba;
     }
 
     QMessageBox::information(
@@ -2487,17 +2515,17 @@ void MainWindow::showPixelInfo(int x, int y, QRgb rgba) {
             "文件：%1\n"
             "坐标：(%2, %3)\n"
             "原始颜色 RGBA：(%4, %5, %6, %7)\n"
-            "滤镜后颜色 RGBA：(%8, %9, %10, %11)\n"
-            "当前滤镜：%12\n"
+            "处理后颜色 RGBA：(%8, %9, %10, %11)\n"
+            "当前处理：%12\n"
             "缩放：%13%"
         )
-            .arg(QFileInfo(m_currentFile).fileName())
+            .arg(m_currentFile.isEmpty() ? QString::fromUtf8(u8"无") : QFileInfo(m_currentFile).fileName())
             .arg(x)
             .arg(y)
-            .arg(qRed(rgba))
-            .arg(qGreen(rgba))
-            .arg(qBlue(rgba))
-            .arg(qAlpha(rgba))
+            .arg(qRed(originalRgba))
+            .arg(qGreen(originalRgba))
+            .arg(qBlue(originalRgba))
+            .arg(qAlpha(originalRgba))
             .arg(qRed(filteredRgba))
             .arg(qGreen(filteredRgba))
             .arg(qBlue(filteredRgba))
@@ -2739,7 +2767,7 @@ void MainWindow::updateProcessingStatus(const QString& message) {
     if (m_chainLabel) {
         const QString chain = m_processingChain.isEmpty()
             ? QString::fromUtf8(u8"当前处理：无")
-            : QString::fromUtf8(u8"当前处理：") + m_processingChain.join(QString::fromUtf8(u8" → "));
+            : QString::fromUtf8(u8"当前处理：") + m_processingChain.join(QString::fromUtf8(u8" 步"));
         m_chainLabel->setText(chain);
     }
     if (m_undoButton) {
@@ -2775,7 +2803,7 @@ void MainWindow::updateParameterStatus() {
     }
     const QString text = m_parameterRecords.isEmpty()
         ? QString::fromUtf8(u8"参数记录：无")
-        : QString::fromUtf8(u8"参数记录：") + m_parameterRecords.join(QString::fromUtf8(u8"；"));
+        : QString::fromUtf8(u8"参数记录：") + m_parameterRecords.join(QString::fromUtf8(u8"无"));
     m_parameterLabel->setText(text);
 }
 
@@ -2787,7 +2815,7 @@ void MainWindow::undoProcessing() {
     m_processingChain = m_historyIndex >= 0 ? m_chainHistory.value(m_historyIndex) : QStringList();
     m_parameterRecords = m_historyIndex >= 0 ? m_parameterHistory.value(m_historyIndex) : QStringList();
     refreshWorkbenchImages();
-    updateProcessingStatus(QString::fromUtf8(u8"已撤回上一步处理"));
+    updateProcessingStatus(QString::fromUtf8(u8"已撤回上一步处无"));
 }
 
 void MainWindow::redoProcessing() {
@@ -2798,7 +2826,7 @@ void MainWindow::redoProcessing() {
     m_processingChain = m_chainHistory.value(m_historyIndex);
     m_parameterRecords = m_parameterHistory.value(m_historyIndex);
     refreshWorkbenchImages();
-    updateProcessingStatus(QString::fromUtf8(u8"已前进到下一步处理"));
+    updateProcessingStatus(QString::fromUtf8(u8"已前进到下一步处无"));
 }
 
 void MainWindow::resetProcessing() {
@@ -2900,6 +2928,29 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
             return false;
         }
         *density = slider->value() / 100.0;
+        return true;
+    };
+
+    auto askGaussianNoiseParams = [this, &makeNumberStepper, &stepperValue](double* mean, double* sigma) {
+        QDialog dialog(this);
+        dialog.setWindowTitle(QString::fromUtf8(u8"高斯噪声参数"));
+        auto* layout = new QGridLayout(&dialog);
+        QLineEdit* meanEdit = nullptr;
+        QLineEdit* sigmaEdit = nullptr;
+        QWidget* meanStepper = makeNumberStepper(&dialog, 0.0, -100.0, 100.0, 1.0, 1, &meanEdit);
+        QWidget* sigmaStepper = makeNumberStepper(&dialog, 15.0, 0.0, 100.0, 1.0, 1, &sigmaEdit);
+        auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
+        layout->addWidget(new QLabel(QString::fromUtf8(u8"均无"), &dialog), 0, 0);
+        layout->addWidget(meanStepper, 0, 1, Qt::AlignLeft);
+        layout->addWidget(new QLabel(QString::fromUtf8(u8"标准无"), &dialog), 1, 0);
+        layout->addWidget(sigmaStepper, 1, 1, Qt::AlignLeft);
+        layout->addWidget(apply, 2, 1);
+        connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
+        if (dialog.exec() != QDialog::Accepted) {
+            return false;
+        }
+        *mean = stepperValue(meanEdit, 0.0);
+        *sigma = std::max(0.0, stepperValue(sigmaEdit, 15.0));
         return true;
     };
 
@@ -3025,8 +3076,8 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
             auto* buttonColumn = new QVBoxLayout();
             buttonColumn->setContentsMargins(0, 0, 0, 0);
             buttonColumn->setSpacing(0);
-            auto* upButton = new QPushButton(QStringLiteral("▲"), frame);
-            auto* downButton = new QPushButton(QStringLiteral("▼"), frame);
+            auto* upButton = new QPushButton(QString::fromUtf8(u8"▲"), frame);
+            auto* downButton = new QPushButton(QString::fromUtf8(u8"▼"), frame);
             upButton->setObjectName(QStringLiteral("StepperButton"));
             downButton->setObjectName(QStringLiteral("StepperButton"));
             upButton->setCursor(Qt::PointingHandCursor);
@@ -3123,6 +3174,130 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         return true;
     };
 
+    auto askRestorationParams = [this, &makeNumberStepper, &stepperValue](
+        const QString& name,
+        RestorationModel* model,
+        RestorationParams* params
+    ) {
+        QDialog dialog(this);
+        dialog.setWindowTitle(QString::fromUtf8(u8"图像复原参数"));
+        dialog.setModal(true);
+        dialog.setMinimumWidth(430);
+
+        auto* rootLayout = new QVBoxLayout(&dialog);
+        rootLayout->setContentsMargins(18, 16, 18, 16);
+        rootLayout->setSpacing(14);
+
+        auto* title = new QLabel(QString::fromUtf8(u8"图像复原参数"), &dialog);
+        title->setObjectName(QStringLiteral("PanelTitle"));
+        auto* subtitle = new QLabel(name, &dialog);
+        subtitle->setObjectName(QStringLiteral("MutedText"));
+        rootLayout->addWidget(title);
+        rootLayout->addWidget(subtitle);
+
+        auto* formLayout = new QGridLayout();
+        formLayout->setHorizontalSpacing(14);
+        formLayout->setVerticalSpacing(12);
+        formLayout->setColumnStretch(1, 1);
+
+        int row = 0;
+        auto* modelCombo = new QComboBox(&dialog);
+        modelCombo->addItem(QString::fromUtf8(u8"大气湍流"), static_cast<int>(RestorationModel::AtmosphericTurbulence));
+        modelCombo->addItem(QString::fromUtf8(u8"运动模糊"), static_cast<int>(RestorationModel::MotionBlur));
+        formLayout->addWidget(new QLabel(QString::fromUtf8(u8"退化模无"), &dialog), row, 0);
+        formLayout->addWidget(modelCombo, row, 1);
+        ++row;
+
+        auto addNumberRow = [&](const QString& labelText, QWidget* editor, QLabel** labelOut) {
+            auto* label = new QLabel(labelText, &dialog);
+            formLayout->addWidget(label, row, 0);
+            formLayout->addWidget(editor, row, 1, Qt::AlignLeft);
+            if (labelOut) {
+                *labelOut = label;
+            }
+            ++row;
+        };
+
+        QLabel* turbulenceLabel = nullptr;
+        QLabel* motionALabel = nullptr;
+        QLabel* motionBLabel = nullptr;
+        QLabel* motionTLabel = nullptr;
+        QLabel* cutoffLabel = nullptr;
+        QLabel* wienerLabel = nullptr;
+        QLineEdit* turbulenceEdit = nullptr;
+        QLineEdit* motionAEdit = nullptr;
+        QLineEdit* motionBEdit = nullptr;
+        QLineEdit* motionTEdit = nullptr;
+        QLineEdit* cutoffEdit = nullptr;
+        QLineEdit* wienerEdit = nullptr;
+        QWidget* turbulenceStepper = makeNumberStepper(&dialog, params->turbulenceK, 0.00001, 0.01, 0.00005, 5, &turbulenceEdit);
+        QWidget* motionAStepper = makeNumberStepper(&dialog, params->motionA, -1.0, 1.0, 0.01, 3, &motionAEdit);
+        QWidget* motionBStepper = makeNumberStepper(&dialog, params->motionB, -1.0, 1.0, 0.01, 3, &motionBEdit);
+        QWidget* motionTStepper = makeNumberStepper(&dialog, params->motionT, 0.01, 10.0, 0.1, 2, &motionTEdit);
+        QWidget* cutoffStepper = makeNumberStepper(&dialog, params->inverseCutoff, 1.0, 4096.0, 1.0, 0, &cutoffEdit);
+        QWidget* wienerStepper = makeNumberStepper(&dialog, params->wienerK, 0.0, 1.0, 0.001, 4, &wienerEdit);
+
+        addNumberRow(QString::fromUtf8(u8"湍流系数 k"), turbulenceStepper, &turbulenceLabel);
+        addNumberRow(QStringLiteral("a"), motionAStepper, &motionALabel);
+        addNumberRow(QStringLiteral("b"), motionBStepper, &motionBLabel);
+        addNumberRow(QStringLiteral("T"), motionTStepper, &motionTLabel);
+        addNumberRow(QString::fromUtf8(u8"截止半径"), cutoffStepper, &cutoffLabel);
+        addNumberRow(QString::fromUtf8(u8"维纳参数 K"), wienerStepper, &wienerLabel);
+
+        auto setRowVisible = [](QLabel* label, QWidget* editor, bool visible) {
+            if (label) {
+                label->setVisible(visible);
+            }
+            if (editor) {
+                editor->setVisible(visible);
+            }
+        };
+        auto refreshVisibleParams = [&]() {
+            const auto selectedModel = static_cast<RestorationModel>(modelCombo->currentData().toInt());
+            const bool atmospheric = selectedModel == RestorationModel::AtmosphericTurbulence;
+            const bool needsCutoff = name == QString::fromUtf8(u8"截止半径逆滤波");
+            const bool needsWiener = name == QString::fromUtf8(u8"维纳滤波复原");
+
+            setRowVisible(turbulenceLabel, turbulenceStepper, atmospheric);
+            setRowVisible(motionALabel, motionAStepper, !atmospheric);
+            setRowVisible(motionBLabel, motionBStepper, !atmospheric);
+            setRowVisible(motionTLabel, motionTStepper, !atmospheric);
+            setRowVisible(cutoffLabel, cutoffStepper, needsCutoff);
+            setRowVisible(wienerLabel, wienerStepper, needsWiener);
+        };
+
+        connect(modelCombo, &QComboBox::currentIndexChanged, &dialog, refreshVisibleParams);
+        refreshVisibleParams();
+
+        rootLayout->addLayout(formLayout);
+
+        auto* buttonRow = new QHBoxLayout();
+        buttonRow->addStretch(1);
+        auto* cancel = new QPushButton(QString::fromUtf8(u8"取消"), &dialog);
+        auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
+        cancel->setCursor(Qt::PointingHandCursor);
+        apply->setCursor(Qt::PointingHandCursor);
+        buttonRow->addWidget(cancel);
+        buttonRow->addWidget(apply);
+        rootLayout->addLayout(buttonRow);
+
+        connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+        connect(apply, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+        if (dialog.exec() != QDialog::Accepted) {
+            return false;
+        }
+
+        *model = static_cast<RestorationModel>(modelCombo->currentData().toInt());
+        params->turbulenceK = stepperValue(turbulenceEdit, params->turbulenceK);
+        params->motionA = stepperValue(motionAEdit, params->motionA);
+        params->motionB = stepperValue(motionBEdit, params->motionB);
+        params->motionT = stepperValue(motionTEdit, params->motionT);
+        params->inverseCutoff = stepperValue(cutoffEdit, params->inverseCutoff);
+        params->wienerK = stepperValue(wienerEdit, params->wienerK);
+        return true;
+    };
+
     QImage input = currentProcessingInput();
     QImage result;
     QString parameterRecord;
@@ -3161,6 +3336,17 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         result = actionName == QString::fromUtf8(u8"椒盐噪声")
             ? ImageLabProcessor::addSaltPepperNoise(input, density)
             : ImageLabProcessor::addImpulseNoise(input, density);
+    } else if (actionName == QString::fromUtf8(u8"高斯噪声")) {
+        double mean = 0.0;
+        double sigma = 15.0;
+        if (!askGaussianNoiseParams(&mean, &sigma)) {
+            return;
+        }
+        parameterRecord = QStringLiteral("%1: 均值=%2, 标准差%3")
+            .arg(actionName)
+            .arg(mean, 0, 'f', 1)
+            .arg(sigma, 0, 'f', 1);
+        result = ImageLabProcessor::addGaussianNoise(input, mean, sigma);
     } else if (actionName == QString::fromUtf8(u8"均值滤波") ||
                actionName == QString::fromUtf8(u8"中值滤波") ||
                actionName == QString::fromUtf8(u8"最大值滤波")) {
@@ -3168,7 +3354,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (!askKernel(&kernelSize)) {
             return;
         }
-        parameterRecord = QStringLiteral("%1: 核大小=%2").arg(actionName).arg(kernelSize);
+        parameterRecord = QStringLiteral("%1: 核大小%2").arg(actionName).arg(kernelSize);
         if (actionName == QString::fromUtf8(u8"均值滤波")) {
             result = ImageLabProcessor::meanFilter(input, kernelSize);
         } else if (actionName == QString::fromUtf8(u8"中值滤波")) {
@@ -3184,7 +3370,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (!askEdgeParams(&kernelSize, &threshold)) {
             return;
         }
-        parameterRecord = QStringLiteral("%1: 核大小=%2, 阈值=%3").arg(actionName).arg(kernelSize).arg(threshold);
+        parameterRecord = QStringLiteral("%1: 核大小%2, 阈值%3").arg(actionName).arg(kernelSize).arg(threshold);
         if (actionName == QString::fromUtf8(u8"Sobel")) {
             result = ImageLabProcessor::sobelEdgeDetect(input, kernelSize, threshold);
         } else if (actionName == QString::fromUtf8(u8"Prewitt")) {
@@ -3249,6 +3435,66 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         } else {
             result = FourierExperimentWidget::processFrequencyImage(input, actionName, cutoff, order, gammaLow, gammaHigh, c);
         }
+    } else if (actionName == QString::fromUtf8(u8"图像退化") ||
+               actionName == QString::fromUtf8(u8"逆滤波复原") ||
+               actionName == QString::fromUtf8(u8"截止半径逆滤波") ||
+               actionName == QString::fromUtf8(u8"维纳滤波复原")) {
+        RestorationModel model = RestorationModel::AtmosphericTurbulence;
+        RestorationParams params;
+        if (!askRestorationParams(actionName, &model, &params)) {
+            return;
+        }
+
+        const QString modelName = model == RestorationModel::AtmosphericTurbulence
+            ? QString::fromUtf8(u8"大气湍流")
+            : QString::fromUtf8(u8"运动模糊");
+
+        if (actionName == QString::fromUtf8(u8"图像退化")) {
+            if (model == RestorationModel::AtmosphericTurbulence) {
+                parameterRecord = QStringLiteral("%1: 模型=%2, k=%3")
+                    .arg(actionName)
+                    .arg(modelName)
+                    .arg(params.turbulenceK, 0, 'f', 5);
+                result = ImageRestoration::atmosphericTurbulenceDegrade(input, params.turbulenceK);
+            } else {
+                parameterRecord = QStringLiteral("%1: 模型=%2, a=%3, b=%4, T=%5")
+                    .arg(actionName)
+                    .arg(modelName)
+                    .arg(params.motionA, 0, 'f', 3)
+                    .arg(params.motionB, 0, 'f', 3)
+                    .arg(params.motionT, 0, 'f', 2);
+                result = ImageRestoration::motionBlurDegrade(input, params.motionA, params.motionB, params.motionT);
+            }
+        } else if (actionName == QString::fromUtf8(u8"逆滤波复原")) {
+            parameterRecord = QStringLiteral("%1: 模型=%2, k=%3, a=%4, b=%5, T=%6")
+                .arg(actionName)
+                .arg(modelName)
+                .arg(params.turbulenceK, 0, 'f', 4)
+                .arg(params.motionA, 0, 'f', 3)
+                .arg(params.motionB, 0, 'f', 3)
+                .arg(params.motionT, 0, 'f', 2);
+            result = ImageRestoration::inverseFilter(input, model, params);
+        } else if (actionName == QString::fromUtf8(u8"截止半径逆滤波")) {
+            parameterRecord = QStringLiteral("%1: 模型=%2, 截止半径=%3, k=%4, a=%5, b=%6, T=%7")
+                .arg(actionName)
+                .arg(modelName)
+                .arg(params.inverseCutoff, 0, 'f', 0)
+                .arg(params.turbulenceK, 0, 'f', 4)
+                .arg(params.motionA, 0, 'f', 3)
+                .arg(params.motionB, 0, 'f', 3)
+                .arg(params.motionT, 0, 'f', 2);
+            result = ImageRestoration::inverseFilterWithCutoff(input, model, params);
+        } else {
+            parameterRecord = QStringLiteral("%1: 模型=%2, K=%3, k=%4, a=%5, b=%6, T=%7")
+                .arg(actionName)
+                .arg(modelName)
+                .arg(params.wienerK, 0, 'f', 4)
+                .arg(params.turbulenceK, 0, 'f', 4)
+                .arg(params.motionA, 0, 'f', 3)
+                .arg(params.motionB, 0, 'f', 3)
+                .arg(params.motionT, 0, 'f', 2);
+            result = ImageRestoration::wienerFilter(input, model, params);
+        }
     }
 
     if (!parameterRecord.isEmpty()) {
@@ -3305,3 +3551,5 @@ void MainWindow::doHistMatch() {
     m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
     updateHistogram();
 }
+
+

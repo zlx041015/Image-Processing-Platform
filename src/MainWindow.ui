@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -91,6 +91,23 @@ QComboBox {
     border-radius: 9px;
     padding: 6px 10px;
     min-width: 120px;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 24px;
+    border: none;
+}
+
+QComboBox::down-arrow {
+    image: none;
+    width: 0px;
+    height: 0px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #64748b;
+    margin-right: 8px;
 }
 
 QComboBox QAbstractItemView {
@@ -254,7 +271,7 @@ QListWidget::item:selected {
               <property name="spacing"><number>8</number></property>
               <item>
                <widget class="QLabel" name="filterLabel">
-                <property name="text"><string>滤镜：</string></property>
+                 <property name="text"><string>滤镜：</string></property>
                </widget>
               </item>
               <item>
@@ -364,7 +381,7 @@ QListWidget::item:selected {
                <property name="spacing"><number>8</number></property>
                <item>
                 <widget class="QLabel" name="histogramTitle">
-                 <property name="text"><string>灰度直方图</string></property>
+                  <property name="text"><string>灰度直方图</string></property>
                 </widget>
                </item>
                <item>
@@ -382,7 +399,7 @@ QListWidget::item:selected {
                   <set>Qt::AlignCenter</set>
                  </property>
                  <property name="text">
-                  <string>加载图片后自动显示</string>
+                   <string>加载图片后自动显示</string>
                  </property>
                 </widget>
                </item>
@@ -587,7 +604,7 @@ QPushButton#fourierSaveButton:disabled {
               </item>
               <item>
                <widget class="QLabel" name="fourierSubtitle">
-                <property name="text"><string>提供 FFT/IFFT、理想/巴特沃斯低通与高通滤波、同态滤波，用于医学影像的频域分析与增强。</string></property>
+                 <property name="text"><string>提供 FFT/IFFT、理想/巴特沃斯低通与高通滤波、同态滤波，用于医学影像的频域分析与增强。</string></property>
                 <property name="wordWrap"><bool>true</bool></property>
                </widget>
               </item>
@@ -674,7 +691,7 @@ QPushButton#fourierSaveButton:disabled {
               </item>
               <item row="2" column="0">
                <widget class="QLabel" name="fourierHomomorphicCLabel">
-                <property name="text"><string>同态 c</string></property>
+                 <property name="text"><string>同态 c</string></property>
                </widget>
               </item>
               <item row="2" column="1">
@@ -708,31 +725,31 @@ QPushButton#fourierSaveButton:disabled {
               <item row="3" column="0">
                <widget class="QPushButton" name="fourierIdealLowButton">
                 <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
-                <property name="text"><string>理想低通</string></property>
+                 <property name="text"><string>理想低通</string></property>
                </widget>
               </item>
               <item row="3" column="1">
                <widget class="QPushButton" name="fourierButterLowButton">
                 <property name="minimumSize"><size><width>112</width><height>34</height></size></property>
-                <property name="text"><string>巴特沃斯低通</string></property>
+                 <property name="text"><string>巴特沃斯低通</string></property>
                </widget>
               </item>
               <item row="3" column="2">
                <widget class="QPushButton" name="fourierIdealHighButton">
                 <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
-                <property name="text"><string>理想高通</string></property>
+                 <property name="text"><string>理想高通</string></property>
                </widget>
               </item>
               <item row="3" column="3">
                <widget class="QPushButton" name="fourierButterHighButton">
                 <property name="minimumSize"><size><width>112</width><height>34</height></size></property>
-                <property name="text"><string>巴特沃斯高通</string></property>
+                 <property name="text"><string>巴特沃斯高通</string></property>
                </widget>
               </item>
               <item row="3" column="4">
                <widget class="QPushButton" name="fourierHomoButton">
                 <property name="minimumSize"><size><width>92</width><height>34</height></size></property>
-                <property name="text"><string>同态滤波</string></property>
+                 <property name="text"><string>同态滤波</string></property>
                </widget>
               </item>
               <item row="3" column="5">
@@ -761,7 +778,7 @@ QPushButton#fourierSaveButton:disabled {
               </item>
               <item row="0" column="1">
                <widget class="QLabel" name="fourierSpectrumTitle">
-                <property name="text"><string>频谱/滤波器频域</string></property>
+                 <property name="text"><string>频谱/滤波器频域</string></property>
                </widget>
               </item>
               <item row="0" column="2">
@@ -813,7 +830,7 @@ QPushButton#fourierSaveButton:disabled {
                <widget class="QTextEdit" name="fourierNotesEdit">
                 <property name="minimumSize"><size><width>0</width><height>96</height></size></property>
                 <property name="readOnly"><bool>true</bool></property>
-                <property name="plainText"><string>1. FFT/IFFT：对图像乘以 (-1)^(x+y) 后做二维 FFT，使频谱中心移到图像中心。
+                 <property name="plainText"><string>1. FFT/IFFT：对图像乘以 (-1)^(x+y) 后做二维 FFT，使频谱中心移到图像中心。
 2. 理想滤波器：按距离 D 与截止半径 D0 的关系直接保留或抑制频率。
 3. 巴特沃斯滤波器：阶数越高，过渡带越陡，通常比理想滤波器振铃更弱。
 4. 同态滤波：对 log(1+I) 做频域高频增强和低频抑制，再指数反变换。</string></property>
@@ -856,3 +873,4 @@ QPushButton#fourierSaveButton:disabled {
  <resources/>
  <connections/>
 </ui>
+

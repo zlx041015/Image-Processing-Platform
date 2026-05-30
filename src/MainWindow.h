@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QImage>
 #include <QMainWindow>
@@ -224,3 +224,4 @@ private:
     QString m_enhancementSourcePath;
     int m_enhancementPreviewStep = 0;
 };
+
