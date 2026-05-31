@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include "ImageRestoration.h"
+
 #include <QImage>
 #include <QMainWindow>
 #include <QStringList>
@@ -223,5 +225,25 @@ private:
     QImage m_enhancementStep8Image;
     QString m_enhancementSourcePath;
     int m_enhancementPreviewStep = 0;
+
+    double m_lastNoiseDensity = 0.08;
+    double m_lastGaussianMean = 0.0;
+    double m_lastGaussianSigma = 15.0;
+    int m_lastKernelSize = 3;
+    int m_lastEdgeKernelSize = 3;
+    int m_lastEdgeThreshold = 80;
+    double m_lastGamma = 0.8;
+    double m_lastFrequencyCutoff = 40.0;
+    int m_lastFrequencyOrder = 2;
+    double m_lastHomomorphicGammaLow = 0.5;
+    double m_lastHomomorphicGammaHigh = 1.8;
+    double m_lastHomomorphicC = 1.0;
+    RestorationModel m_lastRestorationModel = RestorationModel::AtmosphericTurbulence;
+    double m_lastRestorationTurbulenceK = 0.0025;
+    double m_lastRestorationMotionA = 0.1;
+    double m_lastRestorationMotionB = 0.1;
+    double m_lastRestorationMotionT = 1.0;
+    double m_lastRestorationCutoff = 30.0;
+    double m_lastRestorationWienerK = 0.05;
 };
 

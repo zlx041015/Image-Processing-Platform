@@ -16,6 +16,8 @@ struct SpectrumData {
     int height = 0;
     int originalWidth = 0;
     int originalHeight = 0;
+    int padTop = 0;
+    int padLeft = 0;
     QVector<Complex> values;
 
     bool isValid() const {
@@ -31,20 +33,22 @@ int nextPowerOfTwo(int value) {
     return result;
 }
 
-int clampToByte(double value) {
-    return std::clamp(static_cast<int>(std::lround(value)), 0, 255);
-}
-
-int percentileFromHistogram(const QVector<int>& hist, int total, double percentile) {
-    const int target = std::clamp(static_cast<int>(std::round(total * percentile)), 0, std::max(0, total - 1));
-    int cumulative = 0;
-    for (int i = 0; i < hist.size(); ++i) {
-        cumulative += hist[i];
-        if (cumulative > target) {
-            return i;
+int reflectIndex(int index, int size) {
+    if (size <= 1) {
+        return 0;
+    }
+    while (index < 0 || index >= size) {
+        if (index < 0) {
+            index = -index - 1;
+        } else {
+            index = 2 * size - index - 1;
         }
     }
-    return hist.size() - 1;
+    return index;
+}
+
+int clampToByte(double value) {
+    return std::clamp(static_cast<int>(std::lround(value)), 0, 255);
 }
 
 void fft1d(QVector<Complex>& line, bool inverse) {
@@ -118,16 +122,17 @@ SpectrumData fourierTransform(const QImage& image) {
     const QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
     spectrum.originalWidth = gray.width();
     spectrum.originalHeight = gray.height();
-    spectrum.width = nextPowerOfTwo(gray.width());
-    spectrum.height = nextPowerOfTwo(gray.height());
+    spectrum.width = nextPowerOfTwo(gray.width() * 2);
+    spectrum.height = nextPowerOfTwo(gray.height() * 2);
+    spectrum.padLeft = (spectrum.width - gray.width()) / 2;
+    spectrum.padTop = (spectrum.height - gray.height()) / 2;
     spectrum.values.resize(spectrum.width * spectrum.height);
 
     for (int y = 0; y < spectrum.height; ++y) {
         for (int x = 0; x < spectrum.width; ++x) {
-            double value = 0.0;
-            if (x < gray.width() && y < gray.height()) {
-                value = qGray(gray.pixel(x, y));
-            }
+            const int srcX = reflectIndex(x - spectrum.padLeft, gray.width());
+            const int srcY = reflectIndex(y - spectrum.padTop, gray.height());
+            double value = qGray(gray.pixel(srcX, srcY));
             if ((x + y) & 1) {
                 value = -value;
             }
@@ -154,8 +159,10 @@ QImage inverseToImage(const SpectrumData& spectrum, bool normalize) {
 
     for (int y = 0; y < out.height(); ++y) {
         for (int x = 0; x < out.width(); ++x) {
-            double value = spatial[y * spectrum.width + x].real();
-            if ((x + y) & 1) {
+            const int sx = x + spectrum.padLeft;
+            const int sy = y + spectrum.padTop;
+            double value = spatial[sy * spectrum.width + sx].real();
+            if ((sx + sy) & 1) {
                 value = -value;
             }
             values[y * out.width() + x] = value;
@@ -178,8 +185,8 @@ QImage inverseToImage(const SpectrumData& spectrum, bool normalize) {
     return out;
 }
 
-QImage robustContrastStretch(const QImage& image, double lowPercentile = 0.01, double highPercentile = 0.995) {
-    QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
+QImage normalizeForDisplay(const QImage& image) {
+    const QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
     if (gray.isNull()) {
         return {};
     }
@@ -193,36 +200,50 @@ QImage robustContrastStretch(const QImage& image, double lowPercentile = 0.01, d
     }
 
     const int total = gray.width() * gray.height();
-    int low = percentileFromHistogram(hist, total, lowPercentile);
-    int high = percentileFromHistogram(hist, total, highPercentile);
-    if (high <= low) {
-        low = 0;
-        high = 255;
+    const int lowTarget = std::max(0, static_cast<int>(std::round(total * 0.005)));
+    const int highTarget = std::max(0, static_cast<int>(std::round(total * 0.995)));
+    int cumulative = 0;
+    int minValue = 0;
+    int maxValue = 255;
+    for (int i = 0; i < 256; ++i) {
+        cumulative += hist[i];
+        if (cumulative > lowTarget) {
+            minValue = i;
+            break;
+        }
+    }
+    cumulative = 0;
+    for (int i = 0; i < 256; ++i) {
+        cumulative += hist[i];
+        if (cumulative > highTarget) {
+            maxValue = i;
+            break;
+        }
+    }
+
+    if (maxValue <= minValue) {
+        minValue = 0;
+        maxValue = 255;
     }
 
     QImage out(gray.size(), QImage::Format_Grayscale8);
-    const double scale = 255.0 / std::max(1, high - low);
+    const double scale = 255.0 / (maxValue - minValue);
     for (int y = 0; y < gray.height(); ++y) {
         const uchar* src = gray.constScanLine(y);
         uchar* dst = out.scanLine(y);
         for (int x = 0; x < gray.width(); ++x) {
-            dst[x] = static_cast<uchar>(clampToByte((src[x] - low) * scale));
+            dst[x] = static_cast<uchar>(clampToByte((src[x] - minValue) * scale));
         }
     }
     return out;
 }
 
-QImage unsharpMask(const QImage& image, double amount) {
-    QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
+QImage boxBlur3x3(const QImage& image) {
+    const QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
     if (gray.isNull()) {
         return {};
     }
 
-    const int kernel[3][3] = {
-        {1, 2, 1},
-        {2, 4, 2},
-        {1, 2, 1}
-    };
     QImage out(gray.size(), QImage::Format_Grayscale8);
     auto sample = [&](int x, int y) {
         x = std::clamp(x, 0, gray.width() - 1);
@@ -231,31 +252,48 @@ QImage unsharpMask(const QImage& image, double amount) {
     };
 
     for (int y = 0; y < gray.height(); ++y) {
-        const uchar* src = gray.constScanLine(y);
         uchar* dst = out.scanLine(y);
         for (int x = 0; x < gray.width(); ++x) {
-            int blur = 0;
+            int sum = 0;
             for (int ky = -1; ky <= 1; ++ky) {
                 for (int kx = -1; kx <= 1; ++kx) {
-                    blur += sample(x + kx, y + ky) * kernel[ky + 1][kx + 1];
+                    sum += sample(x + kx, y + ky);
                 }
             }
-            blur /= 16;
-            const double value = src[x] + amount * (src[x] - blur);
+            dst[x] = static_cast<uchar>(sum / 9);
+        }
+    }
+    return out;
+}
+
+QImage unsharpMask(const QImage& image, double amount) {
+    const QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
+    if (gray.isNull()) {
+        return {};
+    }
+
+    const QImage blur = boxBlur3x3(gray);
+    QImage out(gray.size(), QImage::Format_Grayscale8);
+    for (int y = 0; y < gray.height(); ++y) {
+        const uchar* src = gray.constScanLine(y);
+        const uchar* low = blur.constScanLine(y);
+        uchar* dst = out.scanLine(y);
+        for (int x = 0; x < gray.width(); ++x) {
+            const double value = src[x] + amount * (src[x] - low[x]);
             dst[x] = static_cast<uchar>(clampToByte(value));
         }
     }
     return out;
 }
 
-QImage localContrastEnhance(const QImage& image, double amount) {
-    QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
+QImage localContrastBoost(const QImage& image, double amount) {
+    const QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
     if (gray.isNull()) {
         return {};
     }
 
     QImage out(gray.size(), QImage::Format_Grayscale8);
-    const int radius = 5;
+    const int radius = 2;
     auto sample = [&](int x, int y) {
         x = std::clamp(x, 0, gray.width() - 1);
         y = std::clamp(y, 0, gray.height() - 1);
@@ -282,108 +320,27 @@ QImage localContrastEnhance(const QImage& image, double amount) {
     return out;
 }
 
-QImage edgeRecover(const QImage& image, double amount) {
-    QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    auto sample = [&](int x, int y) {
-        x = std::clamp(x, 0, gray.width() - 1);
-        y = std::clamp(y, 0, gray.height() - 1);
-        return static_cast<int>(gray.constScanLine(y)[x]);
-    };
-
-    for (int y = 0; y < gray.height(); ++y) {
-        const uchar* src = gray.constScanLine(y);
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            const int lap = 4 * sample(x, y) - sample(x - 1, y) - sample(x + 1, y) - sample(x, y - 1) - sample(x, y + 1);
-            dst[x] = static_cast<uchar>(clampToByte(src[x] + amount * lap));
-        }
-    }
-    return out;
-}
-
-QImage suppressBorderArtifacts(const QImage& image, int margin = 8) {
-    QImage out = image.convertToFormat(QImage::Format_Grayscale8);
-    if (out.isNull() || out.width() <= margin * 2 || out.height() <= margin * 2) {
-        return out;
-    }
-
-    const int w = out.width();
-    const int h = out.height();
-    for (int y = 0; y < h; ++y) {
-        uchar* line = out.scanLine(y);
-        for (int x = 0; x < w; ++x) {
-            const int dist = std::min({x, y, w - 1 - x, h - 1 - y});
-            if (dist >= margin) {
-                continue;
-            }
-            const int sx = std::clamp(x, margin, w - margin - 1);
-            const int sy = std::clamp(y, margin, h - margin - 1);
-            const double t = static_cast<double>(dist) / margin;
-            const int inner = out.constScanLine(sy)[sx];
-            line[x] = static_cast<uchar>(clampToByte(t * line[x] + (1.0 - t) * inner));
-        }
-    }
-    return out;
-}
-
-QImage blendImages(const QImage& a, const QImage& b, double aWeight) {
-    QImage ga = a.convertToFormat(QImage::Format_Grayscale8);
-    QImage gb = b.convertToFormat(QImage::Format_Grayscale8);
-    if (ga.isNull()) {
-        return gb;
-    }
-    if (gb.isNull()) {
-        return ga;
-    }
-
-    const int width = std::min(ga.width(), gb.width());
-    const int height = std::min(ga.height(), gb.height());
-    QImage out(width, height, QImage::Format_Grayscale8);
-    aWeight = std::clamp(aWeight, 0.0, 1.0);
-    for (int y = 0; y < height; ++y) {
-        const uchar* la = ga.constScanLine(y);
-        const uchar* lb = gb.constScanLine(y);
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < width; ++x) {
-            dst[x] = static_cast<uchar>(clampToByte(aWeight * la[x] + (1.0 - aWeight) * lb[x]));
-        }
-    }
-    return out;
-}
-
-QImage detailEnhance(const QImage& image, RestorationModel model, bool wiener) {
-    QImage out = robustContrastStretch(image, 0.005, 0.995);
+QImage postEnhanceRestoration(const QImage& image, RestorationModel model, bool wiener) {
+    QImage out = normalizeForDisplay(image);
     if (model == RestorationModel::AtmosphericTurbulence) {
-        out = localContrastEnhance(out, wiener ? 1.15 : 0.8);
-        out = unsharpMask(out, wiener ? 2.1 : 1.35);
-        out = edgeRecover(out, wiener ? 0.32 : 0.2);
-    } else {
-        out = localContrastEnhance(out, wiener ? 0.45 : 0.35);
-        out = unsharpMask(out, wiener ? 0.85 : 0.65);
-        out = edgeRecover(out, wiener ? 0.12 : 0.08);
+        out = unsharpMask(out, wiener ? 0.55 : 0.35);
+        return normalizeForDisplay(out);
     }
-    return robustContrastStretch(out, 0.005, 0.995);
+
+    out = localContrastBoost(out, wiener ? 0.42 : 0.28);
+    out = unsharpMask(out, wiener ? 1.10 : 0.75);
+    out = normalizeForDisplay(out);
+    return out;
 }
 
-QImage finalizeRestoration(const QImage& restored, const QImage& degraded, RestorationModel model, bool wiener) {
-    if (model == RestorationModel::AtmosphericTurbulence) {
-        QImage restoredDetail = robustContrastStretch(restored, 0.01, 0.995);
-        restoredDetail = unsharpMask(restoredDetail, wiener ? 0.55 : 0.35);
-        return suppressBorderArtifacts(robustContrastStretch(restoredDetail, 0.01, 0.995), 10);
-    }
-    QImage restoredDetail = detailEnhance(restored, model, wiener);
-    if (model == RestorationModel::MotionBlur) {
-        restoredDetail = suppressBorderArtifacts(restoredDetail, 12);
-        restoredDetail = unsharpMask(restoredDetail, wiener ? 0.45 : 0.25);
-        return robustContrastStretch(restoredDetail, 0.005, 0.995);
-    }
-    QImage degradedDetail = detailEnhance(degraded, model, true);
-    return robustContrastStretch(blendImages(restoredDetail, degradedDetail, wiener ? 0.45 : 0.55), 0.005, 0.995);
+double idealLowPassGain(double distance, double cutoff) {
+    return distance <= cutoff ? 1.0 : 0.0;
+}
+
+double butterworthLowPassGain(double distance, double cutoff, int order) {
+    const double safeCutoff = std::max(1.0, cutoff);
+    const int safeOrder = std::max(1, order);
+    return 1.0 / (1.0 + std::pow(distance / safeCutoff, 2.0 * safeOrder));
 }
 
 Complex atmosphericTransfer(int x, int y, int width, int height, double k) {
@@ -426,7 +383,7 @@ QImage degradeImage(const QImage& image, RestorationModel model, const Restorati
             spectrum.values[y * spectrum.width + x] *= transferAt(model, params, x, y, spectrum.width, spectrum.height);
         }
     }
-    return inverseToImage(spectrum, false);
+    return normalizeForDisplay(inverseToImage(spectrum, false));
 }
 
 QImage restoreImage(const QImage& degraded, RestorationModel model, const RestorationParams& params, bool cutoffEnabled, bool wiener) {
@@ -439,7 +396,9 @@ QImage restoreImage(const QImage& degraded, RestorationModel model, const Restor
     const double k = std::max(0.0, params.wienerK);
     const double centerX = spectrum.width / 2.0;
     const double centerY = spectrum.height / 2.0;
-    constexpr double epsilon = 1e-6;
+    constexpr double epsilon = 1e-8;
+    const double inverseFloor = model == RestorationModel::AtmosphericTurbulence ? 0.02 : 0.05;
+    const int butterworthOrder = 2;
 
     for (int y = 0; y < spectrum.height; ++y) {
         for (int x = 0; x < spectrum.width; ++x) {
@@ -449,33 +408,21 @@ QImage restoreImage(const QImage& degraded, RestorationModel model, const Restor
             const double dx = x - centerX;
             const double dy = y - centerY;
             const double distance = std::sqrt(dx * dx + dy * dy);
+            const double cutoffGain = cutoffEnabled ? butterworthLowPassGain(distance, cutoff, butterworthOrder) : 1.0;
 
-            if (cutoffEnabled && distance > cutoff) {
-                spectrum.values[index] = Complex(0.0, 0.0);
-                continue;
-            }
-
-            if (wiener && model == RestorationModel::AtmosphericTurbulence) {
-                const int iterations = std::clamp(static_cast<int>(std::round(24.0 / std::sqrt(k + 0.01))), 18, 90);
-                const double factor = 1.0 - std::pow(std::max(0.0, 1.0 - h2), iterations);
-                if (h2 > epsilon) {
-                    spectrum.values[index] *= std::conj(h) * (factor / h2);
-                } else {
-                    spectrum.values[index] = Complex(0.0, 0.0);
-                }
-            } else if (wiener) {
-                const double regularization = model == RestorationModel::MotionBlur
-                    ? std::max(0.002, k)
-                    : k;
-                spectrum.values[index] *= std::conj(h) / (h2 + regularization + epsilon);
-            } else if (h2 > epsilon) {
-                spectrum.values[index] /= h;
+            if (wiener) {
+                const double lowPass = model == RestorationModel::MotionBlur
+                    ? butterworthLowPassGain(distance, cutoffEnabled ? cutoff : 70.0, butterworthOrder)
+                    : cutoffGain;
+                spectrum.values[index] *= (std::conj(h) / (h2 + k + epsilon)) * lowPass;
+            } else if (std::abs(h) >= inverseFloor && h2 > epsilon) {
+                spectrum.values[index] *= (Complex(1.0, 0.0) / h) * cutoffGain;
             } else {
                 spectrum.values[index] = Complex(0.0, 0.0);
             }
         }
     }
-    return finalizeRestoration(inverseToImage(spectrum, false), degraded, model, wiener);
+    return postEnhanceRestoration(inverseToImage(spectrum, false), model, wiener);
 }
 
 }

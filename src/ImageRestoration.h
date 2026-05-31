@@ -12,8 +12,8 @@ struct RestorationParams {
     double motionA = 0.1;
     double motionB = 0.1;
     double motionT = 1.0;
-    double inverseCutoff = 180.0;
-    double wienerK = 0.04;
+    double inverseCutoff = 50.0;
+    double wienerK = 0.003;
 };
 
 class ImageRestoration {

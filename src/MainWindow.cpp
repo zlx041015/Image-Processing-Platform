@@ -925,7 +925,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     infoCard->setObjectName("Card");
     auto* infoLayout = new QVBoxLayout(infoCard);
     infoLayout->setContentsMargins(16, 14, 16, 14);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强无"), infoCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强"), infoCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     infoLayout->addWidget(m_enhancementInfoLabel);
@@ -947,7 +947,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     m_enhancementDetailBadgeLabel = new QLabel(QString::fromUtf8(u8"第1步"), detailCard);
     m_enhancementDetailBadgeLabel->setObjectName(QStringLiteral("ThemeBadge"));
     detailTop->addWidget(m_enhancementDetailBadgeLabel, 0, Qt::AlignLeft);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强无"), detailCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强"), detailCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     detailTop->addWidget(m_enhancementInfoLabel, 1);
@@ -1033,7 +1033,7 @@ QWidget* MainWindow::createEnhancementExperimentPage() {
     infoCard->setObjectName("Card");
     auto* infoLayout = new QVBoxLayout(infoCard);
     infoLayout->setContentsMargins(16, 12, 16, 12);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强无"), infoCard);
+    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强"), infoCard);
     m_enhancementInfoLabel->setObjectName("SmallLabel");
     m_enhancementInfoLabel->setWordWrap(true);
     infoLayout->addWidget(m_enhancementInfoLabel);
@@ -1150,7 +1150,7 @@ void MainWindow::updateEnhancementExperimentPreview() {
 
 void MainWindow::updateEnhancementDetailPreview(int stepIndex, const QImage& image, const QString& description) {
     if (m_enhancementDetailBadgeLabel) {
-        m_enhancementDetailBadgeLabel->setText(QString::fromUtf8(u8"无1无").arg(stepIndex <= 0 ? 1 : stepIndex));
+        m_enhancementDetailBadgeLabel->setText(QString::fromUtf8(u8"第%1步").arg(stepIndex <= 0 ? 1 : stepIndex));
     }
     if (m_enhancementInfoLabel) {
         m_enhancementInfoLabel->setText(description);
@@ -1353,7 +1353,7 @@ void MainWindow::addNoiseToExperiment() {
     }
     updateNoiseExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已添加噪无"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已添加噪声"));
     }
     statusBar()->showMessage(QString::fromUtf8(u8"已生成加噪结果"));
 }
@@ -1375,7 +1375,7 @@ void MainWindow::applyNoiseFilterToExperiment() {
     }
     updateNoiseExperimentPreview();
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已应用滤无"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已应用滤波"));
     }
     statusBar()->showMessage(QString::fromUtf8(u8"去噪结果已更新"));
 }
@@ -1742,7 +1742,7 @@ void MainWindow::loadEnhancementExperimentImage() {
         m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：图像已加载，可以开始执行增强流程无"));
     }
     if (m_experimentStatusLabel) {
-        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载图像增强输入图无"));
+        m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载图像增强输入图像"));
     }
     statusBar()->showMessage(QString::fromUtf8(u8"图像增强输入图像已加载：") + QFileInfo(filePath).fileName());
 }
@@ -2042,7 +2042,7 @@ void MainWindow::updateEnhancementExperimentPreview() {
         } else if (!m_enhancementStep1Image.isNull()) {
             m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：已载入输入图像，可点击“开始增强”或“分布预览”无"));
         } else {
-            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：请选择图像并开始增强无"));
+            m_enhancementInfoLabel->setText(QString::fromUtf8(u8"处理提示：请选择图像并开始增强"));
         }
     }
 }
@@ -2116,7 +2116,7 @@ void MainWindow::showEnhancementPreviewDialog() {
     auto refresh = [&]() {
         const int index = qBound(0, dialog.property("stepIndex").toInt(), 7);
         dialog.setProperty("stepIndex", index);
-        badge->setText(QString::fromUtf8(u8"无1无").arg(index + 1));
+        badge->setText(QString::fromUtf8(u8"第%1步").arg(index + 1));
         note->setText(notes[index]);
         const QImage& img = steps[index];
         if (img.isNull()) {
@@ -2915,7 +2915,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         auto* value = new QLabel(QStringLiteral("8%"), &dialog);
         auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
         slider->setRange(0, 100);
-        slider->setValue(8);
+        slider->setValue(static_cast<int>(std::round(m_lastNoiseDensity * 100.0)));
         layout->addWidget(new QLabel(QString::fromUtf8(u8"强度"), &dialog), 0, 0);
         layout->addWidget(slider, 0, 1);
         layout->addWidget(value, 0, 2);
@@ -2928,6 +2928,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
             return false;
         }
         *density = slider->value() / 100.0;
+        m_lastNoiseDensity = *density;
         return true;
     };
 
@@ -2937,8 +2938,8 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         auto* layout = new QGridLayout(&dialog);
         QLineEdit* meanEdit = nullptr;
         QLineEdit* sigmaEdit = nullptr;
-        QWidget* meanStepper = makeNumberStepper(&dialog, 0.0, -100.0, 100.0, 1.0, 1, &meanEdit);
-        QWidget* sigmaStepper = makeNumberStepper(&dialog, 15.0, 0.0, 100.0, 1.0, 1, &sigmaEdit);
+        QWidget* meanStepper = makeNumberStepper(&dialog, m_lastGaussianMean, -100.0, 100.0, 1.0, 1, &meanEdit);
+        QWidget* sigmaStepper = makeNumberStepper(&dialog, m_lastGaussianSigma, 0.0, 100.0, 1.0, 1, &sigmaEdit);
         auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
         layout->addWidget(new QLabel(QString::fromUtf8(u8"均无"), &dialog), 0, 0);
         layout->addWidget(meanStepper, 0, 1, Qt::AlignLeft);
@@ -2949,8 +2950,10 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (dialog.exec() != QDialog::Accepted) {
             return false;
         }
-        *mean = stepperValue(meanEdit, 0.0);
-        *sigma = std::max(0.0, stepperValue(sigmaEdit, 15.0));
+        *mean = stepperValue(meanEdit, m_lastGaussianMean);
+        *sigma = std::max(0.0, stepperValue(sigmaEdit, m_lastGaussianSigma));
+        m_lastGaussianMean = *mean;
+        m_lastGaussianSigma = *sigma;
         return true;
     };
 
@@ -2959,7 +2962,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         dialog.setWindowTitle(QString::fromUtf8(u8"滤波参数"));
         auto* layout = new QGridLayout(&dialog);
         QLineEdit* kernelEdit = nullptr;
-        QWidget* kernelStepper = makeNumberStepper(&dialog, 3.0, 3.0, 15.0, 2.0, 0, &kernelEdit);
+        QWidget* kernelStepper = makeNumberStepper(&dialog, m_lastKernelSize, 3.0, 15.0, 2.0, 0, &kernelEdit);
         auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
         layout->addWidget(new QLabel(QString::fromUtf8(u8"核大小"), &dialog), 0, 0);
         layout->addWidget(kernelStepper, 0, 1, Qt::AlignLeft);
@@ -2973,6 +2976,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
             ++(*kernelSize);
         }
         *kernelSize = std::clamp(*kernelSize, 3, 15);
+        m_lastKernelSize = *kernelSize;
         return true;
     };
 
@@ -2981,12 +2985,12 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         dialog.setWindowTitle(QString::fromUtf8(u8"边缘参数"));
         auto* layout = new QGridLayout(&dialog);
         QLineEdit* kernelEdit = nullptr;
-        QWidget* kernelStepper = makeNumberStepper(&dialog, 3.0, 3.0, 5.0, 2.0, 0, &kernelEdit);
+        QWidget* kernelStepper = makeNumberStepper(&dialog, m_lastEdgeKernelSize, 3.0, 5.0, 2.0, 0, &kernelEdit);
         auto* slider = new QSlider(Qt::Horizontal, &dialog);
         auto* value = new QLabel(QStringLiteral("80"), &dialog);
         auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
         slider->setRange(0, 255);
-        slider->setValue(80);
+        slider->setValue(m_lastEdgeThreshold);
         layout->addWidget(new QLabel(QString::fromUtf8(u8"核大小"), &dialog), 0, 0);
         layout->addWidget(kernelStepper, 0, 1, Qt::AlignLeft);
         layout->addWidget(new QLabel(QString::fromUtf8(u8"阈值"), &dialog), 1, 0);
@@ -3006,6 +3010,8 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         }
         *kernelSize = std::clamp(*kernelSize, 3, 5);
         *threshold = slider->value();
+        m_lastEdgeKernelSize = *kernelSize;
+        m_lastEdgeThreshold = *threshold;
         return true;
     };
 
@@ -3014,7 +3020,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         dialog.setWindowTitle(QString::fromUtf8(u8"Gamma 参数"));
         auto* layout = new QGridLayout(&dialog);
         QLineEdit* gammaEdit = nullptr;
-        QWidget* gammaStepper = makeNumberStepper(&dialog, 0.8, 0.1, 5.0, 0.1, 2, &gammaEdit);
+        QWidget* gammaStepper = makeNumberStepper(&dialog, m_lastGamma, 0.1, 5.0, 0.1, 2, &gammaEdit);
         auto* apply = new QPushButton(QString::fromUtf8(u8"应用"), &dialog);
         layout->addWidget(new QLabel(QStringLiteral("Gamma"), &dialog), 0, 0);
         layout->addWidget(gammaStepper, 0, 1, Qt::AlignLeft);
@@ -3023,7 +3029,8 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         if (dialog.exec() != QDialog::Accepted) {
             return false;
         }
-        *gamma = std::clamp(stepperValue(gammaEdit, 0.8), 0.1, 5.0);
+        *gamma = std::clamp(stepperValue(gammaEdit, m_lastGamma), 0.1, 5.0);
+        m_lastGamma = *gamma;
         return true;
     };
 
@@ -3123,20 +3130,20 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         };
 
         QLineEdit* cutoffEdit = nullptr;
-        addNumberRow(QString::fromUtf8(u8"截止半径"), makeNumberStepper(*cutoff, 1.0, 4096.0, 1.0, 0, &cutoffEdit));
+        addNumberRow(QString::fromUtf8(u8"截止半径"), makeNumberStepper(m_lastFrequencyCutoff, 1.0, 4096.0, 1.0, 0, &cutoffEdit));
 
         QLineEdit* orderEdit = nullptr;
         if (needsOrder) {
-            addNumberRow(QString::fromUtf8(u8"阶数"), makeNumberStepper(*order, 1.0, 10.0, 1.0, 0, &orderEdit));
+            addNumberRow(QString::fromUtf8(u8"阶数"), makeNumberStepper(m_lastFrequencyOrder, 1.0, 10.0, 1.0, 0, &orderEdit));
         }
 
         QLineEdit* gammaLowEdit = nullptr;
         QLineEdit* gammaHighEdit = nullptr;
         QLineEdit* cEdit = nullptr;
         if (needsHomomorphic) {
-            addNumberRow(QStringLiteral("γL"), makeNumberStepper(*gammaLow, 0.01, 5.0, 0.05, 2, &gammaLowEdit));
-            addNumberRow(QStringLiteral("γH"), makeNumberStepper(*gammaHigh, 0.01, 5.0, 0.05, 2, &gammaHighEdit));
-            addNumberRow(QStringLiteral("c"), makeNumberStepper(*c, 0.01, 10.0, 0.1, 2, &cEdit));
+            addNumberRow(QStringLiteral("γL"), makeNumberStepper(m_lastHomomorphicGammaLow, 0.01, 5.0, 0.05, 2, &gammaLowEdit));
+            addNumberRow(QStringLiteral("γH"), makeNumberStepper(m_lastHomomorphicGammaHigh, 0.01, 5.0, 0.05, 2, &gammaHighEdit));
+            addNumberRow(QStringLiteral("c"), makeNumberStepper(m_lastHomomorphicC, 0.01, 10.0, 0.1, 2, &cEdit));
         }
 
         rootLayout->addLayout(formLayout);
@@ -3158,19 +3165,24 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
             return false;
         }
 
-        *cutoff = stepperValue(cutoffEdit, *cutoff);
+        *cutoff = stepperValue(cutoffEdit, m_lastFrequencyCutoff);
         if (orderEdit) {
-            *order = static_cast<int>(std::round(stepperValue(orderEdit, *order)));
+            *order = static_cast<int>(std::round(stepperValue(orderEdit, m_lastFrequencyOrder)));
         }
         if (gammaLowEdit) {
-            *gammaLow = stepperValue(gammaLowEdit, *gammaLow);
+            *gammaLow = stepperValue(gammaLowEdit, m_lastHomomorphicGammaLow);
         }
         if (gammaHighEdit) {
-            *gammaHigh = stepperValue(gammaHighEdit, *gammaHigh);
+            *gammaHigh = stepperValue(gammaHighEdit, m_lastHomomorphicGammaHigh);
         }
         if (cEdit) {
-            *c = stepperValue(cEdit, *c);
+            *c = stepperValue(cEdit, m_lastHomomorphicC);
         }
+        m_lastFrequencyCutoff = *cutoff;
+        m_lastFrequencyOrder = *order;
+        m_lastHomomorphicGammaLow = *gammaLow;
+        m_lastHomomorphicGammaHigh = *gammaHigh;
+        m_lastHomomorphicC = *c;
         return true;
     };
 
@@ -3204,7 +3216,8 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         auto* modelCombo = new QComboBox(&dialog);
         modelCombo->addItem(QString::fromUtf8(u8"大气湍流"), static_cast<int>(RestorationModel::AtmosphericTurbulence));
         modelCombo->addItem(QString::fromUtf8(u8"运动模糊"), static_cast<int>(RestorationModel::MotionBlur));
-        formLayout->addWidget(new QLabel(QString::fromUtf8(u8"退化模无"), &dialog), row, 0);
+        modelCombo->setCurrentIndex(m_lastRestorationModel == RestorationModel::AtmosphericTurbulence ? 0 : 1);
+        formLayout->addWidget(new QLabel(QString::fromUtf8(u8"退化模型"), &dialog), row, 0);
         formLayout->addWidget(modelCombo, row, 1);
         ++row;
 
@@ -3230,12 +3243,12 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         QLineEdit* motionTEdit = nullptr;
         QLineEdit* cutoffEdit = nullptr;
         QLineEdit* wienerEdit = nullptr;
-        QWidget* turbulenceStepper = makeNumberStepper(&dialog, params->turbulenceK, 0.00001, 0.01, 0.00005, 5, &turbulenceEdit);
-        QWidget* motionAStepper = makeNumberStepper(&dialog, params->motionA, -1.0, 1.0, 0.01, 3, &motionAEdit);
-        QWidget* motionBStepper = makeNumberStepper(&dialog, params->motionB, -1.0, 1.0, 0.01, 3, &motionBEdit);
-        QWidget* motionTStepper = makeNumberStepper(&dialog, params->motionT, 0.01, 10.0, 0.1, 2, &motionTEdit);
-        QWidget* cutoffStepper = makeNumberStepper(&dialog, params->inverseCutoff, 1.0, 4096.0, 1.0, 0, &cutoffEdit);
-        QWidget* wienerStepper = makeNumberStepper(&dialog, params->wienerK, 0.0, 1.0, 0.001, 4, &wienerEdit);
+        QWidget* turbulenceStepper = makeNumberStepper(&dialog, m_lastRestorationTurbulenceK, 0.00001, 0.01, 0.00005, 5, &turbulenceEdit);
+        QWidget* motionAStepper = makeNumberStepper(&dialog, m_lastRestorationMotionA, -1.0, 1.0, 0.01, 3, &motionAEdit);
+        QWidget* motionBStepper = makeNumberStepper(&dialog, m_lastRestorationMotionB, -1.0, 1.0, 0.01, 3, &motionBEdit);
+        QWidget* motionTStepper = makeNumberStepper(&dialog, m_lastRestorationMotionT, 0.01, 10.0, 0.1, 2, &motionTEdit);
+        QWidget* cutoffStepper = makeNumberStepper(&dialog, m_lastRestorationCutoff, 1.0, 4096.0, 1.0, 0, &cutoffEdit);
+        QWidget* wienerStepper = makeNumberStepper(&dialog, m_lastRestorationWienerK, 0.0, 1.0, 0.001, 4, &wienerEdit);
 
         addNumberRow(QString::fromUtf8(u8"湍流系数 k"), turbulenceStepper, &turbulenceLabel);
         addNumberRow(QStringLiteral("a"), motionAStepper, &motionALabel);
@@ -3289,12 +3302,19 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
         }
 
         *model = static_cast<RestorationModel>(modelCombo->currentData().toInt());
-        params->turbulenceK = stepperValue(turbulenceEdit, params->turbulenceK);
-        params->motionA = stepperValue(motionAEdit, params->motionA);
-        params->motionB = stepperValue(motionBEdit, params->motionB);
-        params->motionT = stepperValue(motionTEdit, params->motionT);
-        params->inverseCutoff = stepperValue(cutoffEdit, params->inverseCutoff);
-        params->wienerK = stepperValue(wienerEdit, params->wienerK);
+        params->turbulenceK = stepperValue(turbulenceEdit, m_lastRestorationTurbulenceK);
+        params->motionA = stepperValue(motionAEdit, m_lastRestorationMotionA);
+        params->motionB = stepperValue(motionBEdit, m_lastRestorationMotionB);
+        params->motionT = stepperValue(motionTEdit, m_lastRestorationMotionT);
+        params->inverseCutoff = stepperValue(cutoffEdit, m_lastRestorationCutoff);
+        params->wienerK = stepperValue(wienerEdit, m_lastRestorationWienerK);
+        m_lastRestorationModel = *model;
+        m_lastRestorationTurbulenceK = params->turbulenceK;
+        m_lastRestorationMotionA = params->motionA;
+        m_lastRestorationMotionB = params->motionB;
+        m_lastRestorationMotionT = params->motionT;
+        m_lastRestorationCutoff = params->inverseCutoff;
+        m_lastRestorationWienerK = params->wienerK;
         return true;
     };
 
@@ -3466,33 +3486,53 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
                 result = ImageRestoration::motionBlurDegrade(input, params.motionA, params.motionB, params.motionT);
             }
         } else if (actionName == QString::fromUtf8(u8"逆滤波复原")) {
-            parameterRecord = QStringLiteral("%1: 模型=%2, k=%3, a=%4, b=%5, T=%6")
-                .arg(actionName)
-                .arg(modelName)
-                .arg(params.turbulenceK, 0, 'f', 4)
-                .arg(params.motionA, 0, 'f', 3)
-                .arg(params.motionB, 0, 'f', 3)
-                .arg(params.motionT, 0, 'f', 2);
+            if (model == RestorationModel::AtmosphericTurbulence) {
+                parameterRecord = QStringLiteral("%1: 模型=%2, k=%3")
+                    .arg(actionName)
+                    .arg(modelName)
+                    .arg(params.turbulenceK, 0, 'f', 4);
+            } else {
+                parameterRecord = QStringLiteral("%1: 模型=%2, a=%3, b=%4, T=%5")
+                    .arg(actionName)
+                    .arg(modelName)
+                    .arg(params.motionA, 0, 'f', 3)
+                    .arg(params.motionB, 0, 'f', 3)
+                    .arg(params.motionT, 0, 'f', 2);
+            }
             result = ImageRestoration::inverseFilter(input, model, params);
         } else if (actionName == QString::fromUtf8(u8"截止半径逆滤波")) {
-            parameterRecord = QStringLiteral("%1: 模型=%2, 截止半径=%3, k=%4, a=%5, b=%6, T=%7")
-                .arg(actionName)
-                .arg(modelName)
-                .arg(params.inverseCutoff, 0, 'f', 0)
-                .arg(params.turbulenceK, 0, 'f', 4)
-                .arg(params.motionA, 0, 'f', 3)
-                .arg(params.motionB, 0, 'f', 3)
-                .arg(params.motionT, 0, 'f', 2);
+            if (model == RestorationModel::AtmosphericTurbulence) {
+                parameterRecord = QStringLiteral("%1: 模型=%2, 截止半径=%3, k=%4")
+                    .arg(actionName)
+                    .arg(modelName)
+                    .arg(params.inverseCutoff, 0, 'f', 0)
+                    .arg(params.turbulenceK, 0, 'f', 4);
+            } else {
+                parameterRecord = QStringLiteral("%1: 模型=%2, 截止半径=%3, a=%4, b=%5, T=%6")
+                    .arg(actionName)
+                    .arg(modelName)
+                    .arg(params.inverseCutoff, 0, 'f', 0)
+                    .arg(params.motionA, 0, 'f', 3)
+                    .arg(params.motionB, 0, 'f', 3)
+                    .arg(params.motionT, 0, 'f', 2);
+            }
             result = ImageRestoration::inverseFilterWithCutoff(input, model, params);
         } else {
-            parameterRecord = QStringLiteral("%1: 模型=%2, K=%3, k=%4, a=%5, b=%6, T=%7")
-                .arg(actionName)
-                .arg(modelName)
-                .arg(params.wienerK, 0, 'f', 4)
-                .arg(params.turbulenceK, 0, 'f', 4)
-                .arg(params.motionA, 0, 'f', 3)
-                .arg(params.motionB, 0, 'f', 3)
-                .arg(params.motionT, 0, 'f', 2);
+            if (model == RestorationModel::AtmosphericTurbulence) {
+                parameterRecord = QStringLiteral("%1: 模型=%2, K=%3, k=%4")
+                    .arg(actionName)
+                    .arg(modelName)
+                    .arg(params.wienerK, 0, 'f', 4)
+                    .arg(params.turbulenceK, 0, 'f', 4);
+            } else {
+                parameterRecord = QStringLiteral("%1: 模型=%2, K=%3, a=%4, b=%5, T=%6")
+                    .arg(actionName)
+                    .arg(modelName)
+                    .arg(params.wienerK, 0, 'f', 4)
+                    .arg(params.motionA, 0, 'f', 3)
+                    .arg(params.motionB, 0, 'f', 3)
+                    .arg(params.motionT, 0, 'f', 2);
+            }
             result = ImageRestoration::wienerFilter(input, model, params);
         }
     }
