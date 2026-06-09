@@ -183,6 +183,9 @@ private:
     int m_historyIndex = -1;
     bool m_fitOnNextRefresh = false;
     QImage m_frequencyIfftSource;
+    QImage m_lastDegradedRawImage;
+    RestorationModel m_lastDegradationModel = RestorationModel::AtmosphericTurbulence;
+    RestorationParams m_lastDegradationParams;
     QPushButton* m_undoButton = nullptr;
     QPushButton* m_redoButton = nullptr;
     QPushButton* m_resetButton = nullptr;

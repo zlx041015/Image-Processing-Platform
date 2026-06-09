@@ -185,7 +185,7 @@ QImage inverseToImage(const SpectrumData& spectrum, bool normalize) {
     return out;
 }
 
-QImage normalizeForDisplay(const QImage& image) {
+QImage normalizeForDisplayImpl(const QImage& image) {
     const QImage gray = image.convertToFormat(QImage::Format_Grayscale8);
     if (gray.isNull()) {
         return {};
@@ -321,15 +321,15 @@ QImage localContrastBoost(const QImage& image, double amount) {
 }
 
 QImage postEnhanceRestoration(const QImage& image, RestorationModel model, bool wiener) {
-    QImage out = normalizeForDisplay(image);
+    QImage out = normalizeForDisplayImpl(image);
     if (model == RestorationModel::AtmosphericTurbulence) {
         out = unsharpMask(out, wiener ? 0.55 : 0.35);
-        return normalizeForDisplay(out);
+        return normalizeForDisplayImpl(out);
     }
 
     out = localContrastBoost(out, wiener ? 0.42 : 0.28);
     out = unsharpMask(out, wiener ? 1.10 : 0.75);
-    out = normalizeForDisplay(out);
+    out = normalizeForDisplayImpl(out);
     return out;
 }
 
@@ -383,7 +383,9 @@ QImage degradeImage(const QImage& image, RestorationModel model, const Restorati
             spectrum.values[y * spectrum.width + x] *= transferAt(model, params, x, y, spectrum.width, spectrum.height);
         }
     }
-    return normalizeForDisplay(inverseToImage(spectrum, false));
+    // Keep the degraded image in its physical grayscale domain so a follow-up
+    // inverse/Wiener restoration can work from the actual degradation result.
+    return inverseToImage(spectrum, false);
 }
 
 QImage restoreImage(const QImage& degraded, RestorationModel model, const RestorationParams& params, bool cutoffEnabled, bool wiener) {
@@ -431,6 +433,10 @@ QImage ImageRestoration::atmosphericTurbulenceDegrade(const QImage& image, doubl
     RestorationParams params;
     params.turbulenceK = k;
     return degradeImage(image, RestorationModel::AtmosphericTurbulence, params);
+}
+
+QImage ImageRestoration::normalizeForDisplay(const QImage& image) {
+    return normalizeForDisplayImpl(image);
 }
 
 QImage ImageRestoration::motionBlurDegrade(const QImage& image, double a, double b, double t) {

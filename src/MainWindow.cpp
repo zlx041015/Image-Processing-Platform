@@ -2838,6 +2838,7 @@ void MainWindow::resetProcessing() {
     m_historyIndex = -1;
     m_filteredImage = {};
     m_frequencyIfftSource = {};
+    m_lastDegradedRawImage = {};
     refreshWorkbenchImages();
     updateProcessingStatus(QString::fromUtf8(u8"处理链已重置"));
 }
@@ -3465,7 +3466,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
             return;
         }
 
-        const QString modelName = model == RestorationModel::AtmosphericTurbulence
+        QString modelName = model == RestorationModel::AtmosphericTurbulence
             ? QString::fromUtf8(u8"大气湍流")
             : QString::fromUtf8(u8"运动模糊");
 
@@ -3475,7 +3476,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
                     .arg(actionName)
                     .arg(modelName)
                     .arg(params.turbulenceK, 0, 'f', 5);
-                result = ImageRestoration::atmosphericTurbulenceDegrade(input, params.turbulenceK);
+                m_lastDegradedRawImage = ImageRestoration::atmosphericTurbulenceDegrade(input, params.turbulenceK);
             } else {
                 parameterRecord = QStringLiteral("%1: 模型=%2, a=%3, b=%4, T=%5")
                     .arg(actionName)
@@ -3483,9 +3484,24 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
                     .arg(params.motionA, 0, 'f', 3)
                     .arg(params.motionB, 0, 'f', 3)
                     .arg(params.motionT, 0, 'f', 2);
-                result = ImageRestoration::motionBlurDegrade(input, params.motionA, params.motionB, params.motionT);
+                m_lastDegradedRawImage = ImageRestoration::motionBlurDegrade(input, params.motionA, params.motionB, params.motionT);
             }
+            m_lastDegradationModel = model;
+            m_lastDegradationParams = params;
+            result = ImageRestoration::normalizeForDisplay(m_lastDegradedRawImage);
         } else if (actionName == QString::fromUtf8(u8"逆滤波复原")) {
+            const bool reuseDegradationContext =
+                !m_lastDegradedRawImage.isNull() &&
+                !m_processingChain.isEmpty() &&
+                m_processingChain.last() == QString::fromUtf8(u8"图像退化");
+            const QImage restorationInput = reuseDegradationContext ? m_lastDegradedRawImage : input;
+            if (reuseDegradationContext) {
+                model = m_lastDegradationModel;
+                params = m_lastDegradationParams;
+                modelName = model == RestorationModel::AtmosphericTurbulence
+                    ? QString::fromUtf8(u8"大气湍流")
+                    : QString::fromUtf8(u8"运动模糊");
+            }
             if (model == RestorationModel::AtmosphericTurbulence) {
                 parameterRecord = QStringLiteral("%1: 模型=%2, k=%3")
                     .arg(actionName)
@@ -3499,8 +3515,23 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
                     .arg(params.motionB, 0, 'f', 3)
                     .arg(params.motionT, 0, 'f', 2);
             }
-            result = ImageRestoration::inverseFilter(input, model, params);
+            result = ImageRestoration::inverseFilter(restorationInput, model, params);
         } else if (actionName == QString::fromUtf8(u8"截止半径逆滤波")) {
+            const bool reuseDegradationContext =
+                !m_lastDegradedRawImage.isNull() &&
+                !m_processingChain.isEmpty() &&
+                m_processingChain.last() == QString::fromUtf8(u8"图像退化");
+            const QImage restorationInput = reuseDegradationContext ? m_lastDegradedRawImage : input;
+            if (reuseDegradationContext) {
+                model = m_lastDegradationModel;
+                params.turbulenceK = m_lastDegradationParams.turbulenceK;
+                params.motionA = m_lastDegradationParams.motionA;
+                params.motionB = m_lastDegradationParams.motionB;
+                params.motionT = m_lastDegradationParams.motionT;
+                modelName = model == RestorationModel::AtmosphericTurbulence
+                    ? QString::fromUtf8(u8"大气湍流")
+                    : QString::fromUtf8(u8"运动模糊");
+            }
             if (model == RestorationModel::AtmosphericTurbulence) {
                 parameterRecord = QStringLiteral("%1: 模型=%2, 截止半径=%3, k=%4")
                     .arg(actionName)
@@ -3516,8 +3547,23 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
                     .arg(params.motionB, 0, 'f', 3)
                     .arg(params.motionT, 0, 'f', 2);
             }
-            result = ImageRestoration::inverseFilterWithCutoff(input, model, params);
+            result = ImageRestoration::inverseFilterWithCutoff(restorationInput, model, params);
         } else {
+            const bool reuseDegradationContext =
+                !m_lastDegradedRawImage.isNull() &&
+                !m_processingChain.isEmpty() &&
+                m_processingChain.last() == QString::fromUtf8(u8"图像退化");
+            const QImage restorationInput = reuseDegradationContext ? m_lastDegradedRawImage : input;
+            if (reuseDegradationContext) {
+                model = m_lastDegradationModel;
+                params.turbulenceK = m_lastDegradationParams.turbulenceK;
+                params.motionA = m_lastDegradationParams.motionA;
+                params.motionB = m_lastDegradationParams.motionB;
+                params.motionT = m_lastDegradationParams.motionT;
+                modelName = model == RestorationModel::AtmosphericTurbulence
+                    ? QString::fromUtf8(u8"大气湍流")
+                    : QString::fromUtf8(u8"运动模糊");
+            }
             if (model == RestorationModel::AtmosphericTurbulence) {
                 parameterRecord = QStringLiteral("%1: 模型=%2, K=%3, k=%4")
                     .arg(actionName)
@@ -3533,7 +3579,7 @@ void MainWindow::applyProcessingAction(const QString& actionName) {
                     .arg(params.motionB, 0, 'f', 3)
                     .arg(params.motionT, 0, 'f', 2);
             }
-            result = ImageRestoration::wienerFilter(input, model, params);
+            result = ImageRestoration::wienerFilter(restorationInput, model, params);
         }
     }
 

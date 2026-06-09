@@ -20,6 +20,7 @@ class ImageRestoration {
 public:
     static QImage atmosphericTurbulenceDegrade(const QImage& image, double k);
     static QImage motionBlurDegrade(const QImage& image, double a, double b, double t);
+    static QImage normalizeForDisplay(const QImage& image);
 
     static QImage inverseFilter(
         const QImage& degraded,
