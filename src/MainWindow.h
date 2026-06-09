@@ -1,7 +1,10 @@
-#pragma once
+﻿#pragma once
+
+#include "ImageRestoration.h"
 
 #include <QImage>
 #include <QMainWindow>
+#include <QStringList>
 #include <QVector>
 #include <memory>
 
@@ -13,6 +16,7 @@ class ImageView;
 class QListWidgetItem;
 class QDragEnterEvent;
 class QDropEvent;
+class QPoint;
 class QPushButton;
 class QSlider;
 class QStackedWidget;
@@ -68,6 +72,9 @@ private slots:
     void saveNoiseExperimentResult();
     void saveEdgeExperimentResult();
     void saveEnhancementExperimentResult();
+    void undoProcessing();
+    void redoProcessing();
+    void resetProcessing();
 
 private:
     void createUi();
@@ -85,6 +92,13 @@ private:
     void renderCurrentImage();
     void updateHistogram();
     void handleZoomWheel(int delta);
+    void applyProcessingAction(const QString& actionName);
+    void pushProcessingResult(const QImage& image, const QString& actionName);
+    QImage currentProcessingInput() const;
+    void refreshWorkbenchImages();
+    void updateProcessingStatus(const QString& message = QString());
+    void updateParameterStatus();
+    bool isDropOnOriginalView(const QPoint& windowPos) const;
     bool isSupportedImageFile(const QString& filePath) const;
     QImage applyFilter(const QImage& img, const QString& filterName) const;
     QImage convolve(const QImage& img, const QVector<float>& kernel, float divisor, float bias = 0.0f) const;
@@ -128,8 +142,13 @@ private:
     QLabel* m_folderLabel = nullptr;
     QLabel* m_zoomLabel = nullptr;
     QLabel* m_previewHint = nullptr;
+    QLabel* m_chainLabel = nullptr;
+    QLabel* m_parameterLabel = nullptr;
+    QComboBox* m_chainCombo = nullptr;
+    QComboBox* m_parameterCombo = nullptr;
     QComboBox* m_filterCombo = nullptr;
     ImageView* m_imageView = nullptr;
+    ImageView* m_resultView = nullptr;
     QTabWidget* m_mainTabs = nullptr;
     QListWidget* m_experimentList = nullptr;
     QStackedWidget* m_experimentStackedWidget = nullptr;
@@ -155,6 +174,21 @@ private:
     QImage m_noiseNoisyImage;
     QImage m_noiseDenoisedImage;
     QString m_noiseSourcePath;
+
+    QVector<QImage> m_resultHistory;
+    QVector<QStringList> m_chainHistory;
+    QStringList m_processingChain;
+    QVector<QStringList> m_parameterHistory;
+    QStringList m_parameterRecords;
+    int m_historyIndex = -1;
+    bool m_fitOnNextRefresh = false;
+    QImage m_frequencyIfftSource;
+    QImage m_lastDegradedRawImage;
+    RestorationModel m_lastDegradationModel = RestorationModel::AtmosphericTurbulence;
+    RestorationParams m_lastDegradationParams;
+    QPushButton* m_undoButton = nullptr;
+    QPushButton* m_redoButton = nullptr;
+    QPushButton* m_resetButton = nullptr;
 
     QWidget* m_edgeExperimentPage = nullptr;
     QLineEdit* m_edgeInputPathEdit = nullptr;
@@ -194,4 +228,25 @@ private:
     QImage m_enhancementStep8Image;
     QString m_enhancementSourcePath;
     int m_enhancementPreviewStep = 0;
+
+    double m_lastNoiseDensity = 0.08;
+    double m_lastGaussianMean = 0.0;
+    double m_lastGaussianSigma = 15.0;
+    int m_lastKernelSize = 3;
+    int m_lastEdgeKernelSize = 3;
+    int m_lastEdgeThreshold = 80;
+    double m_lastGamma = 0.8;
+    double m_lastFrequencyCutoff = 40.0;
+    int m_lastFrequencyOrder = 2;
+    double m_lastHomomorphicGammaLow = 0.5;
+    double m_lastHomomorphicGammaHigh = 1.8;
+    double m_lastHomomorphicC = 1.0;
+    RestorationModel m_lastRestorationModel = RestorationModel::AtmosphericTurbulence;
+    double m_lastRestorationTurbulenceK = 0.0025;
+    double m_lastRestorationMotionA = 0.1;
+    double m_lastRestorationMotionB = 0.1;
+    double m_lastRestorationMotionT = 1.0;
+    double m_lastRestorationCutoff = 30.0;
+    double m_lastRestorationWienerK = 0.05;
 };
+

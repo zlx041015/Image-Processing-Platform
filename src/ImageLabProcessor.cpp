@@ -73,6 +73,21 @@ QImage ImageLabProcessor::addImpulseNoise(const QImage& img, double density) {
     return out;
 }
 
+QImage ImageLabProcessor::addGaussianNoise(const QImage& img, double mean, double sigma) {
+    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
+    QImage out = gray.copy();
+    sigma = std::max(0.0, sigma);
+    std::mt19937 rng(std::random_device{}());
+    std::normal_distribution<double> dist(mean, sigma);
+    for (int y = 0; y < out.height(); ++y) {
+        uchar* line = out.scanLine(y);
+        for (int x = 0; x < out.width(); ++x) {
+            line[x] = static_cast<uchar>(clampToByte(static_cast<int>(std::lround(line[x] + dist(rng)))));
+        }
+    }
+    return out;
+}
+
 QImage ImageLabProcessor::meanFilter(const QImage& img, int kernelSize) {
     kernelSize = std::max(3, kernelSize | 1);
     QImage gray = img.convertToFormat(QImage::Format_Grayscale8);

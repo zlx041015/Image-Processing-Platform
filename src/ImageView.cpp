@@ -15,10 +15,10 @@ ImageView::ImageView(QWidget* parent) : QGraphicsView(parent) {
     setScene(m_scene);
     m_item = m_scene->addPixmap(QPixmap());
 
-    setBackgroundBrush(QColor("#0f172a"));
+    setBackgroundBrush(QColor("#090d13"));
     setFrameShape(QFrame::NoFrame);
     setMouseTracking(true);
-    setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    setAlignment(Qt::AlignCenter);
     setTransformationAnchor(QGraphicsView::NoAnchor);
     setResizeAnchor(QGraphicsView::NoAnchor);
     setDragMode(QGraphicsView::NoDrag);
@@ -28,13 +28,28 @@ void ImageView::setImages(const QImage& original, const QImage& filtered) {
     m_originalImage = original;
     m_filteredImage = filtered;
     updatePixmap();
-    horizontalScrollBar()->setValue(0);
-    verticalScrollBar()->setValue(0);
 }
 
 void ImageView::setZoomFactor(double zoom) {
     m_zoom = zoom;
     updatePixmap();
+}
+
+double ImageView::fitToView() {
+    if (m_filteredImage.isNull()) {
+        return m_zoom;
+    }
+
+    const QSize available = viewport() ? viewport()->size() : size();
+    if (available.width() <= 2 || available.height() <= 2) {
+        return m_zoom;
+    }
+
+    const double xScale = static_cast<double>(available.width() - 2) / m_filteredImage.width();
+    const double yScale = static_cast<double>(available.height() - 2) / m_filteredImage.height();
+    m_zoom = std::max(0.01, std::min(xScale, yScale));
+    updatePixmap();
+    return m_zoom;
 }
 
 void ImageView::updatePixmap() {
@@ -52,8 +67,9 @@ void ImageView::updatePixmap() {
     Qt::TransformationMode mode = m_zoom >= 1.0 ? Qt::FastTransformation : Qt::SmoothTransformation;
     QPixmap pixmap = QPixmap::fromImage(m_filteredImage.scaled(targetSize, Qt::IgnoreAspectRatio, mode));
     m_item->setPixmap(pixmap);
-    m_item->setPos(20, 20);
-    m_scene->setSceneRect(0, 0, pixmap.width() + 40, pixmap.height() + 40);
+    m_item->setPos(0, 0);
+    m_scene->setSceneRect(0, 0, pixmap.width(), pixmap.height());
+    centerOn(m_scene->sceneRect().center());
 }
 
 bool ImageView::mapToImagePixel(const QPoint& viewPos, QPoint* imagePos) const {
@@ -62,8 +78,8 @@ bool ImageView::mapToImagePixel(const QPoint& viewPos, QPoint* imagePos) const {
     }
 
     QPointF scenePos = mapToScene(viewPos);
-    double x = (scenePos.x() - 20.0) / m_zoom;
-    double y = (scenePos.y() - 20.0) / m_zoom;
+    double x = scenePos.x() / m_zoom;
+    double y = scenePos.y() / m_zoom;
 
     int ix = static_cast<int>(x);
     int iy = static_cast<int>(y);

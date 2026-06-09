@@ -1,7 +1,7 @@
-#define MyAppName "BMP 图像查看器"
+#define MyAppName "Medical Image Analysis Platform"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "YourName"
-#define MyAppExeName "BMPViewerQt.exe"
+#define MyAppPublisher "zlx041015"
+#define MyAppExeName "MedicalImageAnalysisPlatform.exe"
 
 [Setup]
 AppId={{9F3C2B34-9A0F-4C41-AEC7-31A2D1F7B8E1}
@@ -12,27 +12,25 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=output
-OutputBaseFilename=BMPViewerQt_Setup
+OutputBaseFilename=MedicalImageAnalysisPlatform_Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 
-
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"; Flags: unchecked
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional tasks:"; Flags: unchecked
 
 [Files]
-; 注意：这里假定你已经把 windeployqt 处理后的发布文件放在 release 文件夹
-Source: "..\release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

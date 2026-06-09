@@ -9,6 +9,7 @@ public:
 
     static QImage addSaltPepperNoise(const QImage& img, double density);
     static QImage addImpulseNoise(const QImage& img, double density);
+    static QImage addGaussianNoise(const QImage& img, double mean, double sigma);
     static QImage meanFilter(const QImage& img, int kernelSize);
     static QImage medianFilter(const QImage& img, int kernelSize);
     static QImage maxFilter(const QImage& img, int kernelSize);
