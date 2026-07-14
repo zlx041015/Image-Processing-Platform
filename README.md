@@ -1,21 +1,37 @@
 # Medical Image Analysis Platform
 
-This repository contains a Qt/C++ desktop application for medical image analysis experiments.
+Qt/C++ desktop software for medical image loading, enhancement, segmentation, and 3D reconstruction.
 
-## Main Capabilities
+## Functional Checklist
 
-- BMP and common grayscale image loading
-- Histogram enhancement
-- Noise addition and filtering
-- Edge structure analysis
-- Image enhancement workflow
-- Frequency-domain analysis
-- Image restoration, including:
-  - atmospheric turbulence degradation/restoration
-  - motion blur degradation/restoration
-  - inverse filtering
-  - cutoff inverse filtering
-  - Wiener filtering
+This project currently supports the following capabilities:
+
+- Medical-style workspace layout with:
+  - native menu bar
+  - native toolbar
+  - file list / data tree area
+  - image display area
+  - unified information / parameter panel
+- DICOM image opening, parsing, and display:
+  - single-file loading
+  - directory / series loading
+  - axial / coronal / sagittal views
+  - window width / window level adjustment
+- Medical image segmentation:
+  - manual threshold segmentation
+  - Otsu automatic threshold segmentation
+  - multi-seed region growing
+  - DICOM SEG import and aligned overlay display
+- Image enhancement:
+  - histogram operations
+  - noise addition and filtering
+  - edge enhancement
+  - frequency-domain processing
+  - restoration experiments
+- 3D reconstruction:
+  - asynchronous preview and full-quality surface reconstruction
+  - 3D model display with interactive rotation / pan / zoom
+  - axial / coronal / sagittal plane positions shown in 3D view
 
 ## Build
 
@@ -24,20 +40,37 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
-## Release
+## Run
 
-The Release build is deployed automatically with Qt runtime files. After building, run:
+After a successful build, launch:
 
 ```text
 build/Release/MedicalImageAnalysisPlatform.exe
 ```
 
-If you want to distribute the app through GitHub, upload the full `build/Release` directory, not only the `.exe`.
+## Suggested Demo Flow
 
-## Installer
+1. Open a DICOM file or a DICOM folder from the File menu or the image-input toolbar section.
+2. Verify axial, coronal, and sagittal views update correctly.
+3. Adjust window width / window level.
+4. Import a DICOM SEG file, or run threshold / Otsu / region-growing segmentation.
+5. Observe 2D overlay results and the 3D reconstruction result.
+6. Rotate the 3D model and confirm that the three slice planes are visible in 3D.
+7. Open enhancement / frequency / restoration functions from the menu bar or toolbar.
 
-Installer-related files are in `installer/`.
+## DICOM Support Notes
 
-## Assets
+- Standard DICOM files with `DICM` preamble are supported.
+- Files without a `DICM` preamble are now also handled through fallback dataset parsing.
+- DICOM SEG import currently assumes little-endian explicit-VR style dataset encoding, which matches the common exported SEG files used in this project.
 
-Experiment and sample images are kept in the `图片/` directory.
+## Release Packaging
+
+For delivery, package the full `build/Release` directory instead of the `.exe` alone, because Qt runtime files are deployed alongside the application.
+
+## Project Structure
+
+- `src/`: application source code
+- `installer/`: installer-related scripts
+- `sample image directory (图片/)`: sample experiment images
+- `build/Release/`: runnable build output

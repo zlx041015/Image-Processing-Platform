@@ -6,7 +6,9 @@
 #include "ImageLabProcessor.h"
 #include "ImageRestoration.h"
 #include "ImageView.h"
-#include "ui_MainWindow.h"
+#include "SegmentationMeshBuilder.h"
+#include "Segmentation3DView.h"
+#include "SegmentationOverlay.h"
 
 #include <QComboBox>
 #include <QDir>
@@ -19,14 +21,18 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QColor>
+#include <QCheckBox>
+#include <QInputDialog>
 #include <QLabel>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QPlainTextEdit>
 #include <QPixmap>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -35,19 +41,31 @@
 #include <QStatusBar>
 #include <QStackedWidget>
 #include <QSplitter>
-#include <QTabWidget>
+#include <QtConcurrent>
 #include <QStringList>
 #include <QSlider>
 #include <QSpinBox>
 #include <QToolButton>
+#include <QToolBar>
+#include <QTransform>
 #include <QUrl>
 #include <QVBoxLayout>
 
 #include <algorithm>
 #include <cmath>
-#include <random>
-#include <vector>
 
+namespace {
+QImage rotateSagittalForDisplay(const QImage& image) {
+    if (image.isNull()) {
+        return {};
+    }
+    return image.transformed(QTransform().rotate(90.0), Qt::FastTransformation);
+}
+
+QPoint mapDisplayedSagittalPointToSource(int rotatedX, int rotatedY, int originalHeight) {
+    return QPoint(rotatedY, std::max(0, originalHeight - 1 - rotatedX));
+}
+}
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("医学影像分析平台"));
@@ -55,16 +73,26 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setMinimumSize(1050, 680);
     setAcceptDrops(true);
     createUi();
+
+    m_segmentationPreviewWatcher = new QFutureWatcher<SegmentationSurfaceData>(this);
+    connect(m_segmentationPreviewWatcher, &QFutureWatcher<SegmentationSurfaceData>::finished, this, [this]() {
+        const int generation = m_segmentationPreviewWatcher->property("generation").toInt();
+        applySegmentationSurfaceResult(m_segmentationPreviewWatcher->result(), generation, false);
+    });
+
+    m_segmentationFullWatcher = new QFutureWatcher<SegmentationSurfaceData>(this);
+    connect(m_segmentationFullWatcher, &QFutureWatcher<SegmentationSurfaceData>::finished, this, [this]() {
+        const int generation = m_segmentationFullWatcher->property("generation").toInt();
+        applySegmentationSurfaceResult(m_segmentationFullWatcher->result(), generation, true);
+    });
 }
 
 MainWindow::~MainWindow() = default;
 
 void MainWindow::createUi() {
-    ui = std::make_unique<Ui::MainWindow>();
-    ui->setupUi(this);
-
     auto* workbench = new QWidget(this);
     setCentralWidget(workbench);
+    m_sliceNavigationController = new SliceNavigationController(this);
 
     m_fileList = nullptr;
     m_filterCombo = nullptr;
@@ -333,14 +361,6 @@ void MainWindow::createUi() {
     topLayout->addWidget(productTitle);
     topLayout->addSpacing(8);
 
-    auto makeMenuButton = [this, topBar](const QString& text, QMenu* menu) {
-        auto* button = new QToolButton(topBar);
-        button->setText(text);
-        button->setPopupMode(QToolButton::InstantPopup);
-        button->setMenu(menu);
-        button->setCursor(Qt::PointingHandCursor);
-        return button;
-    };
     auto addAction = [this](QMenu* menu, const QString& text) {
         QAction* action = menu->addAction(text);
         connect(action, &QAction::triggered, this, [this, text]() {
@@ -349,10 +369,11 @@ void MainWindow::createUi() {
     };
 
     auto* inputMenu = new QMenu(this);
-    inputMenu->addAction(QString::fromUtf8(u8"打开影像"), this, &MainWindow::openSingleFile);
-    inputMenu->addAction(QString::fromUtf8(u8"打开文件夹"), this, &MainWindow::selectFolder);
+    QAction* openImageAction = inputMenu->addAction(QString::fromUtf8(u8"打开影像"), this, &MainWindow::openSingleFile);
+    QAction* openFolderAction = inputMenu->addAction(QString::fromUtf8(u8"打开文件夹"), this, &MainWindow::selectFolder);
+    QAction* importSegAction = inputMenu->addAction(QString::fromUtf8(u8"导入 SEG"), this, &MainWindow::importSegFile);
     inputMenu->addSeparator();
-    inputMenu->addAction(QString::fromUtf8(u8"保存结果"), this, [this]() {
+    QAction* saveResultAction = inputMenu->addAction(QString::fromUtf8(u8"保存结果"), this, [this]() {
         saveImageToFile(m_filteredImage, QStringLiteral("processed_result.png"));
     });
 
@@ -399,14 +420,48 @@ void MainWindow::createUi() {
         addAction(restorationMenu, item);
     }
 
-    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"影像输入"), inputMenu));
-    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"基础显示"), displayMenu));
-    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"直方图增强"), histMenu));
-    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"噪声与滤波"), noiseMenu));
-    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"边缘结构"), edgeMenu));
-    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"图像增强"), enhanceMenu));
-    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"频域分析"), frequencyMenu));
-    topLayout->addWidget(makeMenuButton(QString::fromUtf8(u8"图像复原"), restorationMenu));
+    QMenuBar* nativeMenuBar = menuBar();
+    nativeMenuBar->setNativeMenuBar(false);
+    nativeMenuBar->clear();
+    auto cloneMenuActions = [](QMenu* destination, const QMenu* source) {
+        for (QAction* action : source->actions()) {
+            destination->addAction(action);
+        }
+    };
+    auto* fileNativeMenu = nativeMenuBar->addMenu(QString::fromUtf8(u8"文件"));
+    auto* displayNativeMenu = nativeMenuBar->addMenu(QString::fromUtf8(u8"显示"));
+    auto* histogramNativeMenu = nativeMenuBar->addMenu(QString::fromUtf8(u8"直方图增强"));
+    auto* noiseNativeMenu = nativeMenuBar->addMenu(QString::fromUtf8(u8"噪声与滤波"));
+    auto* edgeNativeMenu = nativeMenuBar->addMenu(QString::fromUtf8(u8"边缘结构"));
+    auto* enhanceNativeMenu = nativeMenuBar->addMenu(QString::fromUtf8(u8"图像增强"));
+    auto* frequencyNativeMenu = nativeMenuBar->addMenu(QString::fromUtf8(u8"频域分析"));
+    auto* restorationNativeMenu = nativeMenuBar->addMenu(QString::fromUtf8(u8"图像复原"));
+    cloneMenuActions(fileNativeMenu, inputMenu);
+    cloneMenuActions(displayNativeMenu, displayMenu);
+    cloneMenuActions(histogramNativeMenu, histMenu);
+    cloneMenuActions(noiseNativeMenu, noiseMenu);
+    cloneMenuActions(edgeNativeMenu, edgeMenu);
+    cloneMenuActions(enhanceNativeMenu, enhanceMenu);
+    cloneMenuActions(frequencyNativeMenu, frequencyMenu);
+    cloneMenuActions(restorationNativeMenu, restorationMenu);
+
+    auto* primaryToolBar = addToolBar(QString::fromUtf8(u8"快捷工具"));
+    primaryToolBar->setObjectName(QStringLiteral("PrimaryToolBar"));
+    primaryToolBar->setMovable(false);
+    primaryToolBar->addAction(openImageAction);
+    primaryToolBar->addAction(openFolderAction);
+    primaryToolBar->addAction(importSegAction);
+    primaryToolBar->addSeparator();
+    primaryToolBar->addAction(saveResultAction);
+    primaryToolBar->addSeparator();
+    primaryToolBar->addAction(QString::fromUtf8(u8"运行分割"), this, &MainWindow::runDicomSegmentation);
+    primaryToolBar->addAction(QString::fromUtf8(u8"清空种子"), this, &MainWindow::clearSegmentationSeeds);
+    primaryToolBar->addAction(QString::fromUtf8(u8"移除 SEG"), this, &MainWindow::clearLoadedSeg);
+    primaryToolBar->addSeparator();
+    primaryToolBar->addAction(QString::fromUtf8(u8"放大"), this, &MainWindow::zoomIn);
+    primaryToolBar->addAction(QString::fromUtf8(u8"缩小"), this, &MainWindow::zoomOut);
+    primaryToolBar->addAction(QString::fromUtf8(u8"重置缩放"), this, &MainWindow::resetZoom);
+
     topLayout->addStretch(1);
 
     m_undoButton = new QPushButton(QString::fromUtf8(u8"撤回"), topBar);
@@ -420,10 +475,10 @@ void MainWindow::createUi() {
     topLayout->addWidget(m_resetButton);
     rootLayout->addWidget(topBar);
 
-    auto* imageRow = new QSplitter(Qt::Horizontal, workbench);
-    imageRow->setChildrenCollapsible(false);
-    auto buildImagePanel = [this, imageRow](const QString& titleText, ImageView** viewPtr) {
-        auto* panel = new QFrame(imageRow);
+    m_viewModeStack = new QStackedWidget(workbench);
+
+    auto buildImagePanel = [this](QWidget* parent, const QString& titleText, ImageView** viewPtr) {
+        auto* panel = new QFrame(parent);
         panel->setObjectName(QStringLiteral("ImagePanel"));
         auto* layout = new QVBoxLayout(panel);
         layout->setContentsMargins(10, 10, 10, 10);
@@ -437,47 +492,272 @@ void MainWindow::createUi() {
         *viewPtr = view;
         return panel;
     };
-    buildImagePanel(QString::fromUtf8(u8"原始影像"), &m_imageView);
-    buildImagePanel(QString::fromUtf8(u8"处理结果"), &m_resultView);
-    imageRow->setSizes({640, 640});
-    rootLayout->addWidget(imageRow, 1);
 
-    auto* statusRow = new QHBoxLayout();
-    m_infoLabel = new QLabel(QString::fromUtf8(u8"未加载影像"), workbench);
+    m_standardViewPage = new QWidget(m_viewModeStack);
+    auto* standardLayout = new QVBoxLayout(m_standardViewPage);
+    standardLayout->setContentsMargins(0, 0, 0, 0);
+    auto* imageRow = new QSplitter(Qt::Horizontal, m_standardViewPage);
+    imageRow->setChildrenCollapsible(false);
+    buildImagePanel(imageRow, QString::fromUtf8(u8"原始影像"), &m_imageView);
+    buildImagePanel(imageRow, QString::fromUtf8(u8"处理结果"), &m_resultView);
+    imageRow->setSizes({640, 640});
+    standardLayout->addWidget(imageRow);
+    m_viewModeStack->addWidget(m_standardViewPage);
+
+    m_dicomViewPage = new QWidget(m_viewModeStack);
+    auto* dicomLayout = new QVBoxLayout(m_dicomViewPage);
+    dicomLayout->setContentsMargins(0, 0, 0, 0);
+    dicomLayout->setSpacing(10);
+
+    m_windowWidthSlider = new QSlider(Qt::Horizontal, workbench);
+    m_windowCenterSlider = new QSlider(Qt::Horizontal, workbench);
+    m_windowWidthSlider->setRange(1, 2000);
+    m_windowCenterSlider->setRange(-1000, 1000);
+    m_windowWidthValueLabel = new QLabel(QStringLiteral("400"), workbench);
+    m_windowCenterValueLabel = new QLabel(QStringLiteral("40"), workbench);
+
+    auto* dicomGrid = new QGridLayout();
+    dicomGrid->setContentsMargins(0, 0, 0, 0);
+    dicomGrid->setHorizontalSpacing(10);
+    dicomGrid->setVerticalSpacing(10);
+
+    auto makeDicomPanel = [this](QWidget* parent, const QString& titleText, ImageView** viewPtr, QSlider** sliderPtr) {
+        auto* panel = new QFrame(parent);
+        panel->setObjectName(QStringLiteral("ImagePanel"));
+        auto* layout = new QVBoxLayout(panel);
+        layout->setContentsMargins(10, 10, 10, 10);
+        layout->setSpacing(8);
+        auto* title = new QLabel(titleText, panel);
+        title->setObjectName(QStringLiteral("PanelTitle"));
+        auto* view = new ImageView(panel);
+        view->setMinimumSize(320, 260);
+        auto* slider = new QSlider(Qt::Horizontal, panel);
+        slider->setRange(0, 0);
+        layout->addWidget(title);
+        layout->addWidget(view, 1);
+        layout->addWidget(slider);
+        *viewPtr = view;
+        *sliderPtr = slider;
+        return panel;
+    };
+
+    auto* axialPanel = makeDicomPanel(m_dicomViewPage, QString::fromUtf8(u8"轴状位"), &m_axialView, &m_axialSlider);
+    auto* coronalPanel = makeDicomPanel(m_dicomViewPage, QString::fromUtf8(u8"冠状位"), &m_coronalView, &m_coronalSlider);
+    auto* sagittalPanel = makeDicomPanel(m_dicomViewPage, QString::fromUtf8(u8"矢状位"), &m_sagittalView, &m_sagittalSlider);
+    auto* volumePanel = new QFrame(m_dicomViewPage);
+    volumePanel->setObjectName(QStringLiteral("ImagePanel"));
+    auto* volumeLayout = new QVBoxLayout(volumePanel);
+    volumeLayout->setContentsMargins(10, 10, 10, 10);
+    volumeLayout->setSpacing(8);
+    auto* volumeTitle = new QLabel(QString::fromUtf8(u8"三维视图"), volumePanel);
+    volumeTitle->setObjectName(QStringLiteral("PanelTitle"));
+    m_volumeView = new Segmentation3DView(volumePanel);
+    m_volumeView->setMinimumSize(320, 260);
+    volumeLayout->addWidget(volumeTitle);
+    volumeLayout->addWidget(m_volumeView, 1);
+
+    dicomGrid->addWidget(axialPanel, 0, 0);
+    dicomGrid->addWidget(volumePanel, 0, 1);
+    dicomGrid->addWidget(coronalPanel, 1, 0);
+    dicomGrid->addWidget(sagittalPanel, 1, 1);
+    dicomGrid->setColumnStretch(0, 1);
+    dicomGrid->setColumnStretch(1, 1);
+    dicomGrid->setRowStretch(0, 1);
+    dicomGrid->setRowStretch(1, 1);
+    dicomLayout->addLayout(dicomGrid, 1);
+    m_viewModeStack->addWidget(m_dicomViewPage);
+
+    auto* workspacePage = new QWidget(workbench);
+    auto* workspaceLayout = new QVBoxLayout(workspacePage);
+    workspaceLayout->setContentsMargins(0, 0, 0, 0);
+    workspaceLayout->setSpacing(0);
+
+    auto* workspaceSplitter = new QSplitter(Qt::Horizontal, workspacePage);
+    workspaceSplitter->setChildrenCollapsible(false);
+
+    auto* filePanel = new QFrame(workspaceSplitter);
+    filePanel->setObjectName(QStringLiteral("ImagePanel"));
+    auto* fileLayout = new QVBoxLayout(filePanel);
+    fileLayout->setContentsMargins(10, 10, 10, 10);
+    fileLayout->setSpacing(8);
+    auto* fileTitle = new QLabel(QString::fromUtf8(u8"数据树 / 文件列表"), filePanel);
+    fileTitle->setObjectName(QStringLiteral("PanelTitle"));
+    m_folderLabel = new QLabel(QString::fromUtf8(u8"当前文件夹：未选择"), filePanel);
+    m_folderLabel->setObjectName(QStringLiteral("MutedText"));
+    m_folderLabel->setWordWrap(true);
+    m_fileList = new QListWidget(filePanel);
+    fileLayout->addWidget(fileTitle);
+    fileLayout->addWidget(m_folderLabel);
+    fileLayout->addWidget(m_fileList, 1);
+
+    auto* centerPanel = new QFrame(workspaceSplitter);
+    centerPanel->setObjectName(QStringLiteral("ImagePanel"));
+    auto* centerLayout = new QVBoxLayout(centerPanel);
+    centerLayout->setContentsMargins(10, 10, 10, 10);
+    centerLayout->setSpacing(8);
+    centerLayout->addWidget(m_viewModeStack, 1);
+
+    auto* parameterPanel = new QFrame(workspaceSplitter);
+    parameterPanel->setObjectName(QStringLiteral("ImagePanel"));
+    auto* parameterShellLayout = new QVBoxLayout(parameterPanel);
+    parameterShellLayout->setContentsMargins(10, 10, 10, 10);
+    parameterShellLayout->setSpacing(0);
+
+    auto* parameterScrollArea = new QScrollArea(parameterPanel);
+    parameterScrollArea->setWidgetResizable(true);
+    parameterScrollArea->setFrameShape(QFrame::NoFrame);
+    parameterScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    parameterScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    parameterScrollArea->setObjectName(QStringLiteral("ParameterScrollArea"));
+
+    auto* parameterContent = new QWidget(parameterScrollArea);
+    auto* parameterLayout = new QVBoxLayout(parameterContent);
+    parameterLayout->setContentsMargins(0, 0, 0, 0);
+    parameterLayout->setSpacing(8);
+
+    auto* parameterTitle = new QLabel(QString::fromUtf8(u8"统一参数面板"), parameterContent);
+    parameterTitle->setObjectName(QStringLiteral("PanelTitle"));
+    m_infoLabel = new QPlainTextEdit(parameterContent);
     m_infoLabel->setObjectName(QStringLiteral("MutedText"));
-    m_chainLabel = new QLabel(QString::fromUtf8(u8"当前处理：无"), workbench);
+    m_infoLabel->setReadOnly(true);
+    m_infoLabel->setMinimumHeight(120);
+    m_infoLabel->setMaximumHeight(180);
+    m_infoLabel->setPlainText(QString::fromUtf8(u8"未加载影像"));
+    m_chainLabel = new QLabel(QString::fromUtf8(u8"当前处理：无"), parameterContent);
     m_chainLabel->setObjectName(QStringLiteral("MutedText"));
-    m_parameterLabel = new QLabel(QString::fromUtf8(u8"参数记录：无"), workbench);
+    m_parameterLabel = new QLabel(QString::fromUtf8(u8"参数记录：无"), parameterContent);
     m_parameterLabel->setObjectName(QStringLiteral("MutedText"));
-    m_chainLabel->setVisible(false);
-    m_parameterLabel->setVisible(false);
-    m_chainCombo = new QComboBox(workbench);
+    m_chainCombo = new QComboBox(parameterContent);
     m_chainCombo->setCursor(Qt::PointingHandCursor);
     m_chainCombo->setMinimumWidth(260);
     m_chainCombo->addItem(QString::fromUtf8(u8"当前处理：无"));
-    m_parameterCombo = new QComboBox(workbench);
+    m_parameterCombo = new QComboBox(parameterContent);
     m_parameterCombo->setCursor(Qt::PointingHandCursor);
     m_parameterCombo->setMinimumWidth(260);
     m_parameterCombo->addItem(QString::fromUtf8(u8"参数记录：无"));
-    m_zoomLabel = new QLabel(QStringLiteral("100%"), workbench);
+    m_zoomLabel = new QLabel(QStringLiteral("100%"), parameterContent);
     m_zoomLabel->setObjectName(QStringLiteral("MutedText"));
-    m_histogramLabel = new QLabel(QString::fromUtf8(u8"直方图"), workbench);
+    m_histogramLabel = new QLabel(QString::fromUtf8(u8"直方图"), parameterContent);
     m_histogramLabel->setObjectName(QStringLiteral("HistogramPreview"));
     m_histogramLabel->setFixedSize(180, 80);
     m_histogramLabel->setAlignment(Qt::AlignCenter);
-    m_folderLabel = new QLabel(workbench);
-    m_folderLabel->setVisible(false);
-    m_previewHint = nullptr;
-    auto* textStatusLayout = new QVBoxLayout();
-    textStatusLayout->setContentsMargins(0, 0, 0, 0);
-    textStatusLayout->setSpacing(4);
-    textStatusLayout->addWidget(m_chainCombo);
-    textStatusLayout->addWidget(m_parameterCombo);
-    statusRow->addWidget(m_infoLabel, 2);
-    statusRow->addLayout(textStatusLayout, 3);
-    statusRow->addWidget(m_histogramLabel, 0);
-    statusRow->addWidget(m_zoomLabel, 0);
-    rootLayout->addLayout(statusRow);
+
+    auto* wwLabel = new QLabel(QString::fromUtf8(u8"窗宽"), parameterContent);
+    wwLabel->setObjectName(QStringLiteral("PanelTitle"));
+    auto* wcLabel = new QLabel(QString::fromUtf8(u8"窗位"), parameterContent);
+    wcLabel->setObjectName(QStringLiteral("PanelTitle"));
+    auto* wwRow = new QHBoxLayout();
+    wwRow->addWidget(wwLabel);
+    wwRow->addWidget(m_windowWidthSlider, 1);
+    wwRow->addWidget(m_windowWidthValueLabel);
+    auto* wcRow = new QHBoxLayout();
+    wcRow->addWidget(wcLabel);
+    wcRow->addWidget(m_windowCenterSlider, 1);
+    wcRow->addWidget(m_windowCenterValueLabel);
+    auto* processScopeLabel = new QLabel(QString::fromUtf8(u8"处理范围"), parameterContent);
+    processScopeLabel->setObjectName(QStringLiteral("PanelTitle"));
+    m_dicomProcessingScopeCombo = new QComboBox(parameterContent);
+    m_dicomProcessingScopeCombo->addItem(QString::fromUtf8(u8"当前切片"));
+    m_dicomProcessingScopeCombo->addItem(QString::fromUtf8(u8"全体数据"));
+    auto* processTargetLabel = new QLabel(QString::fromUtf8(u8"处理目标"), parameterContent);
+    processTargetLabel->setObjectName(QStringLiteral("PanelTitle"));
+    m_dicomProcessingTargetCombo = new QComboBox(parameterContent);
+    m_dicomProcessingTargetCombo->addItem(QString::fromUtf8(u8"原图"));
+    m_dicomProcessingTargetCombo->addItem(QString::fromUtf8(u8"分割前预处理"));
+    m_dicomProcessingTargetCombo->addItem(QString::fromUtf8(u8"分割后显示"));
+
+    auto* segMethodLabel = new QLabel(QString::fromUtf8(u8"分割方法"), parameterContent);
+    segMethodLabel->setObjectName(QStringLiteral("PanelTitle"));
+    m_segmentationMethodCombo = new QComboBox(parameterContent);
+    m_segmentationMethodCombo->addItem(QString::fromUtf8(u8"阈值分割"));
+    m_segmentationMethodCombo->addItem(QString::fromUtf8(u8"Otsu 自动阈值"));
+    m_segmentationMethodCombo->addItem(QString::fromUtf8(u8"多种子区域生长"));
+    auto* seedModeLabel = new QLabel(QString::fromUtf8(u8"种子模式"), parameterContent);
+    seedModeLabel->setObjectName(QStringLiteral("PanelTitle"));
+    m_seedModeCombo = new QComboBox(parameterContent);
+    m_seedModeCombo->addItem(QString::fromUtf8(u8"仅定位（不加种子）"));
+    m_seedModeCombo->addItem(QString::fromUtf8(u8"添加前景种子"));
+    m_seedModeCombo->addItem(QString::fromUtf8(u8"添加背景种子"));
+    auto* segThresholdLabel = new QLabel(QString::fromUtf8(u8"阈值"), parameterContent);
+    segThresholdLabel->setObjectName(QStringLiteral("PanelTitle"));
+    m_segmentationThresholdSlider = new QSlider(Qt::Horizontal, parameterContent);
+    m_segmentationThresholdSlider->setRange(0, 255);
+    m_segmentationThresholdSlider->setValue(m_segmentationParams.threshold);
+    m_segmentationThresholdValueLabel = new QLabel(QString::number(m_segmentationParams.threshold), parameterContent);
+    auto* segToleranceLabel = new QLabel(QString::fromUtf8(u8"容差"), parameterContent);
+    segToleranceLabel->setObjectName(QStringLiteral("PanelTitle"));
+    m_segmentationToleranceSlider = new QSlider(Qt::Horizontal, parameterContent);
+    m_segmentationToleranceSlider->setRange(1, 80);
+    m_segmentationToleranceSlider->setValue(m_segmentationParams.tolerance);
+    m_segmentationToleranceValueLabel = new QLabel(QString::number(m_segmentationParams.tolerance), parameterContent);
+    m_showSegmentationCheck = new QCheckBox(QString::fromUtf8(u8"显示分割"), parameterContent);
+    m_showSegmentationCheck->setChecked(true);
+    m_segmentationPanelStack = new QStackedWidget(parameterContent);
+    m_algorithmSegmentationPage = new QWidget(m_segmentationPanelStack);
+    auto* algorithmSegLayout = new QVBoxLayout(m_algorithmSegmentationPage);
+    algorithmSegLayout->setContentsMargins(0, 0, 0, 0);
+    algorithmSegLayout->setSpacing(8);
+    auto* segThresholdRow = new QHBoxLayout();
+    segThresholdRow->addWidget(segThresholdLabel);
+    segThresholdRow->addWidget(m_segmentationThresholdSlider, 1);
+    segThresholdRow->addWidget(m_segmentationThresholdValueLabel);
+    auto* segToleranceRow = new QHBoxLayout();
+    segToleranceRow->addWidget(segToleranceLabel);
+    segToleranceRow->addWidget(m_segmentationToleranceSlider, 1);
+    segToleranceRow->addWidget(m_segmentationToleranceValueLabel);
+    auto* segToolbarHint = new QLabel(QString::fromUtf8(u8"分割操作请使用上方工具栏：运行分割 / 清空种子 / 移除 SEG"), m_algorithmSegmentationPage);
+    segToolbarHint->setObjectName(QStringLiteral("MutedText"));
+    segToolbarHint->setWordWrap(true);
+    algorithmSegLayout->addWidget(segMethodLabel);
+    algorithmSegLayout->addWidget(m_segmentationMethodCombo);
+    algorithmSegLayout->addWidget(seedModeLabel);
+    algorithmSegLayout->addWidget(m_seedModeCombo);
+    algorithmSegLayout->addLayout(segThresholdRow);
+    algorithmSegLayout->addLayout(segToleranceRow);
+    algorithmSegLayout->addWidget(segToolbarHint);
+
+    m_segInfoPage = new QWidget(m_segmentationPanelStack);
+    auto* segInfoLayout = new QVBoxLayout(m_segInfoPage);
+    segInfoLayout->setContentsMargins(0, 0, 0, 0);
+    segInfoLayout->setSpacing(8);
+    auto* segSourceTitle = new QLabel(QString::fromUtf8(u8"SEG 信息"), parameterContent);
+    segSourceTitle->setObjectName(QStringLiteral("PanelTitle"));
+    m_segInfoLabel = new QLabel(QString::fromUtf8(u8"当前未导入 SEG"), parameterContent);
+    m_segInfoLabel->setObjectName(QStringLiteral("MutedText"));
+    m_segInfoLabel->setWordWrap(true);
+    segInfoLayout->addWidget(segSourceTitle);
+    segInfoLayout->addWidget(m_segInfoLabel);
+    segInfoLayout->addWidget(m_showSegmentationCheck);
+
+    m_segmentationPanelStack->addWidget(m_algorithmSegmentationPage);
+    m_segmentationPanelStack->addWidget(m_segInfoPage);
+    m_segmentationPanelStack->setCurrentWidget(m_algorithmSegmentationPage);
+
+    parameterLayout->addWidget(parameterTitle);
+    parameterLayout->addWidget(m_infoLabel);
+    parameterLayout->addLayout(wwRow);
+    parameterLayout->addLayout(wcRow);
+    parameterLayout->addWidget(processScopeLabel);
+    parameterLayout->addWidget(m_dicomProcessingScopeCombo);
+    parameterLayout->addWidget(processTargetLabel);
+    parameterLayout->addWidget(m_dicomProcessingTargetCombo);
+    parameterLayout->addWidget(m_segmentationPanelStack);
+    parameterLayout->addWidget(m_chainCombo);
+    parameterLayout->addWidget(m_parameterCombo);
+    parameterLayout->addWidget(m_histogramLabel, 0, Qt::AlignCenter);
+    parameterLayout->addWidget(m_zoomLabel, 0, Qt::AlignLeft);
+    parameterLayout->addStretch(1);
+    parameterScrollArea->setWidget(parameterContent);
+    parameterShellLayout->addWidget(parameterScrollArea, 1);
+
+    workspaceSplitter->addWidget(filePanel);
+    workspaceSplitter->addWidget(centerPanel);
+    workspaceSplitter->addWidget(parameterPanel);
+    parameterPanel->setMinimumWidth(340);
+    workspaceSplitter->setSizes({220, 820, 360});
+    workspaceLayout->addWidget(workspaceSplitter, 1);
+
+    rootLayout->addWidget(workspacePage, 1);
 
     connect(m_imageView, &ImageView::hoverPixel, this, &MainWindow::updateHoverInfo);
     connect(m_imageView, &ImageView::clickPixel, this, &MainWindow::showPixelInfo);
@@ -487,11 +767,124 @@ void MainWindow::createUi() {
     connect(m_resultView, &ImageView::clickPixel, this, &MainWindow::showPixelInfo);
     connect(m_resultView, &ImageView::hoverOutside, this, &MainWindow::updateHoverOutside);
     connect(m_resultView, &ImageView::zoomRequested, this, &MainWindow::handleZoomWheel);
+    connect(m_axialView, &ImageView::zoomRequested, this, &MainWindow::handleZoomWheel);
+    connect(m_coronalView, &ImageView::zoomRequested, this, &MainWindow::handleZoomWheel);
+    connect(m_sagittalView, &ImageView::zoomRequested, this, &MainWindow::handleZoomWheel);
+    connect(m_axialSlider, &QSlider::valueChanged, this, &MainWindow::updateDicomSliceIndex);
+    connect(m_coronalSlider, &QSlider::valueChanged, this, [this](int value) {
+        if (m_sliceNavigationController) {
+            m_sliceNavigationController->setCoronalIndex(value);
+        }
+    });
+    connect(m_sagittalSlider, &QSlider::valueChanged, this, [this](int value) {
+        if (m_sliceNavigationController) {
+            m_sliceNavigationController->setSagittalIndex(value);
+        }
+    });
+    connect(m_windowWidthSlider, &QSlider::valueChanged, this, &MainWindow::updateDicomWindowWidth);
+    connect(m_windowCenterSlider, &QSlider::valueChanged, this, &MainWindow::updateDicomWindowCenter);
+    connect(m_segmentationMethodCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+        if (index == 0) {
+            m_segmentationMethod = SegmentationMethod::Threshold;
+        } else if (index == 1) {
+            m_segmentationMethod = SegmentationMethod::Otsu;
+        } else {
+            m_segmentationMethod = SegmentationMethod::RegionGrow;
+        }
+        if (m_segmentationMethod != SegmentationMethod::RegionGrow) {
+            m_seedEditMode = SeedEditMode::Navigate;
+            if (m_seedModeCombo) {
+                m_seedModeCombo->blockSignals(true);
+                m_seedModeCombo->setCurrentIndex(0);
+                m_seedModeCombo->blockSignals(false);
+            }
+            if (!m_segmentationSeeds.isEmpty()) {
+                pushSeedHistorySnapshot({});
+                applyCurrentSeedHistory(QString::fromUtf8(u8"已切换分割方法，种子已清空"));
+            }
+        }
+        updateSegmentationControls();
+    });
+    connect(m_seedModeCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+        SeedEditMode newMode = SeedEditMode::Navigate;
+        if (index == 1) {
+            newMode = SeedEditMode::Foreground;
+        } else if (index == 2) {
+            newMode = SeedEditMode::Background;
+        }
+        if (newMode == m_seedEditMode) {
+            return;
+        }
+        m_seedEditMode = newMode;
+        if (!m_segmentationSeeds.isEmpty()) {
+            pushSeedHistorySnapshot({});
+            applyCurrentSeedHistory(QString::fromUtf8(u8"已切换种子模式，原有种子已释放"));
+        } else {
+            rebuildSegmentationPreview();
+            updateProcessingStatus(QString::fromUtf8(u8"已切换种子模式"));
+        }
+    });
+    connect(m_segmentationThresholdSlider, &QSlider::valueChanged, this, [this](int value) {
+        m_segmentationParams.threshold = value;
+        if (m_segmentationThresholdValueLabel) {
+            m_segmentationThresholdValueLabel->setText(QString::number(value));
+        }
+    });
+    connect(m_segmentationToleranceSlider, &QSlider::valueChanged, this, [this](int value) {
+        m_segmentationParams.tolerance = value;
+        if (m_segmentationToleranceValueLabel) {
+            m_segmentationToleranceValueLabel->setText(QString::number(value));
+        }
+    });
+    connect(m_showSegmentationCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        m_showSegmentation = checked;
+        rebuildSegmentationPreview();
+    });
+    connect(m_fileList, &QListWidget::itemClicked, this, &MainWindow::onFileSelected);
+    connect(m_axialView, &ImageView::clickPixel, this, [this](int x, int y, QRgb) {
+        if (m_sliceNavigationController) {
+            m_sliceNavigationController->pickFromAxialView(x, y);
+        }
+        if (isSeedEditingEnabled()) {
+            appendSeedPoint({x, y, m_dicomAxialIndex, m_seedEditMode == SeedEditMode::Foreground});
+        } else {
+            rebuildSegmentationPreview();
+        }
+    });
+    connect(m_coronalView, &ImageView::clickPixel, this, [this](int x, int y, QRgb) {
+        if (m_sliceNavigationController) {
+            m_sliceNavigationController->pickFromCoronalView(x, y);
+        }
+        if (isSeedEditingEnabled()) {
+            appendSeedPoint({x, m_dicomCoronalIndex, m_dicomAxialIndex, m_seedEditMode == SeedEditMode::Foreground});
+        } else {
+            rebuildSegmentationPreview();
+        }
+    });
+    connect(m_sagittalView, &ImageView::clickPixel, this, [this](int x, int y, QRgb) {
+        const QPoint sourcePoint = mapDisplayedSagittalPointToSource(x, y, m_dicomSeries.height);
+        if (m_sliceNavigationController) {
+            m_sliceNavigationController->pickFromSagittalView(sourcePoint.x(), sourcePoint.y());
+        }
+        if (isSeedEditingEnabled()) {
+            appendSeedPoint({
+                m_dicomSagittalIndex,
+                sourcePoint.y(),
+                m_dicomAxialIndex,
+                m_seedEditMode == SeedEditMode::Foreground
+            });
+        } else {
+            rebuildSegmentationPreview();
+        }
+    });
+    connect(m_sliceNavigationController, &SliceNavigationController::stateChanged, this, &MainWindow::onSliceNavigationChanged);
     connect(m_undoButton, &QPushButton::clicked, this, &MainWindow::undoProcessing);
     connect(m_redoButton, &QPushButton::clicked, this, &MainWindow::redoProcessing);
     connect(m_resetButton, &QPushButton::clicked, this, &MainWindow::resetProcessing);
 
     refreshWorkbenchImages();
+    switchToDicomMode(false);
+    updateSegmentationControls();
     updateProcessingStatus(QString::fromUtf8(u8"请选择影像"));
 }
 
@@ -500,38 +893,8 @@ QWidget* MainWindow::createExperimentPage() {
     page->setObjectName(QStringLiteral("labExperimentPage"));
 
     auto* rootLayout = new QVBoxLayout(page);
-    rootLayout->setContentsMargins(0, 0, 0, 0);
-    rootLayout->setSpacing(12);
-
-    auto* titleCard = new QFrame(page);
-    titleCard->setObjectName("Card");
-    auto* titleLayout = new QVBoxLayout(titleCard);
-    titleLayout->setContentsMargins(16, 16, 16, 16);
-    titleLayout->setSpacing(4);
-    auto* title = new QLabel(QString::fromUtf8(u8"功能分析"), titleCard);
-    title->setObjectName("SectionTitle");
-    auto* subtitle = new QLabel(QString::fromUtf8(u8"左侧选择功能模块，右侧加载对应处理界无"), titleCard);
-    subtitle->setObjectName("SmallLabel");
-    titleLayout->addWidget(title);
-    titleLayout->addWidget(subtitle);
-    rootLayout->addWidget(titleCard);
-    titleCard->setVisible(false);
-    titleCard->setMaximumHeight(0);
-
-    auto* themeCard = new QFrame(page);
-    themeCard->setObjectName("Card");
-    auto* themeLayout = new QHBoxLayout(themeCard);
-    themeLayout->setContentsMargins(16, 10, 16, 10);
-    themeLayout->setSpacing(10);
-    auto makeThemeBadge = [themeCard](const QString& text) {
-        auto* badge = new QLabel(text, themeCard);
-        badge->setObjectName(QStringLiteral("ThemeBadge"));
-        return badge;
-    };
-    themeLayout->addWidget(makeThemeBadge(QStringLiteral("噪声抑制")));
-    themeLayout->addWidget(makeThemeBadge(QStringLiteral("边缘分析")));
-    themeLayout->addWidget(makeThemeBadge(QStringLiteral("图像增强")));
-    themeLayout->addStretch(1);
+    rootLayout->setContentsMargins(0, 6, 0, 0);
+    rootLayout->setSpacing(8);
 
     auto* body = new QFrame(page);
     body->setObjectName("Card");
@@ -547,7 +910,7 @@ QWidget* MainWindow::createExperimentPage() {
     auto* leftLayout = new QVBoxLayout(leftPane);
     leftLayout->setContentsMargins(12, 12, 12, 12);
     leftLayout->setSpacing(8);
-    auto* leftTitle = new QLabel(QString::fromUtf8(u8"功能模块"), leftPane);
+    auto* leftTitle = new QLabel(QString::fromUtf8(u8"实验功能模块"), leftPane);
     leftTitle->setObjectName("SectionTitle");
     leftLayout->addWidget(leftTitle);
 
@@ -563,7 +926,7 @@ QWidget* MainWindow::createExperimentPage() {
     auto* rightLayout = new QVBoxLayout(rightPane);
     rightLayout->setContentsMargins(12, 12, 12, 12);
     rightLayout->setSpacing(8);
-    auto* rightTitle = new QLabel(QString::fromUtf8(u8"处理工作区"), rightPane);
+    auto* rightTitle = new QLabel(QString::fromUtf8(u8"实验处理区"), rightPane);
     rightTitle->setObjectName("SectionTitle");
     rightLayout->addWidget(rightTitle);
 
@@ -853,124 +1216,6 @@ QWidget* MainWindow::createEdgeExperimentPage() {
     return page;
 }
 
-#if 0
-QWidget* MainWindow::createEnhancementExperimentPage() {
-    auto* page = new QWidget(m_experimentStackedWidget);
-    page->setObjectName(QStringLiteral("labEnhancementExperimentPage"));
-
-    auto* rootLayout = new QVBoxLayout(page);
-    rootLayout->setContentsMargins(0, 0, 0, 0);
-    rootLayout->setSpacing(12);
-
-    auto* controlCard = new QFrame(page);
-    controlCard->setObjectName("Card");
-    auto* controlLayout = new QGridLayout(controlCard);
-    controlLayout->setContentsMargins(16, 16, 16, 16);
-    controlLayout->setHorizontalSpacing(12);
-    controlLayout->setVerticalSpacing(10);
-
-    m_enhancementLoadButton = new QPushButton(QString::fromUtf8(u8"选择影像"), controlCard);
-    m_enhancementInputPathEdit = new QLineEdit(controlCard);
-    m_enhancementInputPathEdit->setReadOnly(true);
-    m_enhancementInputPathEdit->setPlaceholderText(QString::fromUtf8(u8"选择灰度影像作为增强输入"));
-
-    m_enhancementStartButton = new QPushButton(QString::fromUtf8(u8"开始增强"), controlCard);
-    m_enhancementStepButton = new QPushButton(QString::fromUtf8(u8"分步预览"), controlCard);
-    m_enhancementResetButton = new QPushButton(QString::fromUtf8(u8"重置"), controlCard);
-
-    controlLayout->addWidget(new QLabel(QString::fromUtf8(u8"输入图像"), controlCard), 0, 0);
-    controlLayout->addWidget(m_enhancementLoadButton, 0, 1);
-    controlLayout->addWidget(m_enhancementInputPathEdit, 0, 2, 1, 4);
-    controlLayout->addWidget(m_enhancementStartButton, 1, 2);
-    controlLayout->addWidget(m_enhancementStepButton, 1, 3);
-    controlLayout->addWidget(m_enhancementSaveButton, 1, 4);
-    controlLayout->addWidget(m_enhancementResetButton, 1, 5);
-    controlLayout->setColumnStretch(2, 2);
-
-    auto* previewCard = new QFrame(page);
-    previewCard->setObjectName("Card");
-    auto* previewLayout = new QGridLayout(previewCard);
-    previewLayout->setContentsMargins(16, 16, 16, 16);
-    previewLayout->setHorizontalSpacing(10);
-    previewLayout->setVerticalSpacing(10);
-
-    m_enhancementStepLabels.clear();
-    m_enhancementStepLabels.reserve(8);
-
-    for (int i = 0; i < 8; ++i) {
-        auto* frame = new QFrame(previewCard);
-        frame->setObjectName("Card");
-        auto* frameLayout = new QVBoxLayout(frame);
-        frameLayout->setContentsMargins(10, 10, 10, 10);
-        frameLayout->setSpacing(6);
-
-        auto* title = new QLabel(QString::number(i + 1) + QString::fromUtf8(u8" 步"), frame);
-        title->setObjectName("SectionTitle");
-        auto* image = new QLabel(QString::fromUtf8(u8"等待处理"), frame);
-        image->setAlignment(Qt::AlignCenter);
-        image->setMinimumSize(220, 170);
-        image->setObjectName("ImageView");
-        image->setWordWrap(true);
-        frameLayout->addWidget(title);
-        frameLayout->addWidget(image, 1);
-        m_enhancementStepLabels.push_back(image);
-        previewLayout->addWidget(frame, i / 4, i % 4);
-    }
-
-    for (int col = 0; col < 4; ++col) {
-        previewLayout->setColumnStretch(col, 1);
-    }
-
-    auto* infoCard = new QFrame(page);
-    infoCard->setObjectName("Card");
-    auto* infoLayout = new QVBoxLayout(infoCard);
-    infoLayout->setContentsMargins(16, 14, 16, 14);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强"), infoCard);
-    m_enhancementInfoLabel->setObjectName("SmallLabel");
-    m_enhancementInfoLabel->setWordWrap(true);
-    infoLayout->addWidget(m_enhancementInfoLabel);
-
-    rootLayout->addWidget(controlCard);
-    rootLayout->addWidget(previewCard, 1);
-    rootLayout->addWidget(infoCard);
-    infoCard->setVisible(false);
-    infoCard->setMaximumHeight(0);
-
-    auto* detailCard = new QFrame(page);
-    detailCard->setObjectName("Card");
-    auto* detailLayout = new QVBoxLayout(detailCard);
-    detailLayout->setContentsMargins(16, 14, 16, 14);
-    detailLayout->setSpacing(8);
-    auto* detailTop = new QHBoxLayout();
-    detailTop->setContentsMargins(0, 0, 0, 0);
-    detailTop->setSpacing(8);
-    m_enhancementDetailBadgeLabel = new QLabel(QString::fromUtf8(u8"第1步"), detailCard);
-    m_enhancementDetailBadgeLabel->setObjectName(QStringLiteral("ThemeBadge"));
-    detailTop->addWidget(m_enhancementDetailBadgeLabel, 0, Qt::AlignLeft);
-    m_enhancementInfoLabel = new QLabel(QString::fromUtf8(u8"处理提示：请选择图像并开始增强"), detailCard);
-    m_enhancementInfoLabel->setObjectName("SmallLabel");
-    m_enhancementInfoLabel->setWordWrap(true);
-    detailTop->addWidget(m_enhancementInfoLabel, 1);
-    m_enhancementDetailImageLabel = new QLabel(QString::fromUtf8(u8"等待加载图像"), detailCard);
-    m_enhancementDetailImageLabel->setAlignment(Qt::AlignCenter);
-    m_enhancementDetailImageLabel->setMinimumSize(640, 360);
-    m_enhancementDetailImageLabel->setObjectName("ImageView");
-    m_enhancementDetailImageLabel->setWordWrap(true);
-    detailLayout->addLayout(detailTop);
-    detailLayout->addWidget(m_enhancementDetailImageLabel, 1);
-    rootLayout->addWidget(detailCard);
-
-    connect(m_enhancementLoadButton, &QPushButton::clicked, this, &MainWindow::loadEnhancementExperimentImage);
-    connect(m_enhancementStartButton, &QPushButton::clicked, this, &MainWindow::startEnhancementExperiment);
-    connect(m_enhancementStepButton, &QPushButton::clicked, this, &MainWindow::stepEnhancementExperiment);
-    connect(m_enhancementResetButton, &QPushButton::clicked, this, &MainWindow::resetEnhancementExperiment);
-
-    updateEnhancementExperimentPreview();
-    return page;
-}
-
-#endif
-
 QWidget* MainWindow::createEnhancementExperimentPage() {
     auto* page = new QWidget(m_experimentStackedWidget);
     page->setObjectName(QStringLiteral("labEnhancementExperimentPage"));
@@ -1105,203 +1350,6 @@ void MainWindow::updateNoiseExperimentPreview() {
 void MainWindow::updateEdgeExperimentPreview() {
     updateExperimentImageLabel(m_edgeOriginalLabel, m_edgeSourceImage);
     updateExperimentImageLabel(m_edgeResultLabel, m_edgeResultImage);
-}
-
-#if 0
-void MainWindow::updateEnhancementExperimentPreview() {
-    const QVector<QImage> images = {
-        m_enhancementStep1Image,
-        m_enhancementStep2Image,
-        m_enhancementStep3Image,
-        m_enhancementStep4Image,
-        m_enhancementStep5Image,
-        m_enhancementStep6Image,
-        m_enhancementStep7Image,
-        m_enhancementStep8Image
-    };
-
-    for (int i = 0; i < m_enhancementStepLabels.size() && i < images.size(); ++i) {
-        updateExperimentImageLabel(m_enhancementStepLabels[i], images[i]);
-    }
-
-    const int previewIndex = std::clamp(m_enhancementPreviewStep - 1, 0, 7);
-    const QVector<QImage> previewImages = {
-        m_enhancementStep1Image,
-        m_enhancementStep2Image,
-        m_enhancementStep3Image,
-        m_enhancementStep4Image,
-        m_enhancementStep5Image,
-        m_enhancementStep6Image,
-        m_enhancementStep7Image,
-        m_enhancementStep8Image
-    };
-    const QVector<QString> previewNotes = {
-        QString::fromUtf8(u8"步骤1：原图像"),
-        QString::fromUtf8(u8"步骤2：拉普拉斯处理"),
-        QString::fromUtf8(u8"步骤3：锐化图像"),
-        QString::fromUtf8(u8"步骤4：Sobel 梯度"),
-        QString::fromUtf8(u8"步骤5：均值滤波梯度"),
-        QString::fromUtf8(u8"步骤6：掩膜"),
-        QString::fromUtf8(u8"步骤7：原图与掩膜相加"),
-        QString::fromUtf8(u8"步骤8：伽马变换")
-    };
-    updateEnhancementDetailPreview(previewIndex + 1, previewImages[previewIndex], previewNotes[previewIndex]);
-}
-
-void MainWindow::updateEnhancementDetailPreview(int stepIndex, const QImage& image, const QString& description) {
-    if (m_enhancementDetailBadgeLabel) {
-        m_enhancementDetailBadgeLabel->setText(QString::fromUtf8(u8"第%1步").arg(stepIndex <= 0 ? 1 : stepIndex));
-    }
-    if (m_enhancementInfoLabel) {
-        m_enhancementInfoLabel->setText(description);
-    }
-    if (m_enhancementDetailImageLabel) {
-        if (image.isNull()) {
-            m_enhancementDetailImageLabel->setPixmap(QPixmap());
-            m_enhancementDetailImageLabel->setText(QString::fromUtf8(u8"等待加载图像"));
-        } else {
-            QSize target = m_enhancementDetailImageLabel->size();
-            if (target.width() < 2 || target.height() < 2) {
-                target = m_enhancementDetailImageLabel->minimumSize();
-            }
-            m_enhancementDetailImageLabel->setText(QString());
-            m_enhancementDetailImageLabel->setPixmap(QPixmap::fromImage(image).scaled(target, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-        }
-    }
-}
-
-#endif
-
-QImage MainWindow::loadGrayscaleImageFromFile(const QString& filePath, QString* errorMessage) const {
-    QFileInfo info(filePath);
-    const QString suffix = info.suffix().toLower();
-
-    if (suffix == QStringLiteral("bmp")) {
-        BMPReader reader(filePath);
-        if (!reader.load(errorMessage)) {
-            return {};
-        }
-        QImage image = reader.decode(errorMessage);
-        return image.convertToFormat(QImage::Format_Grayscale8);
-    }
-
-    QImage image(filePath);
-    if (image.isNull()) {
-        if (errorMessage) {
-            *errorMessage = QString::fromUtf8(u8"无法加载图像文件");
-        }
-        return {};
-    }
-    return image.convertToFormat(QImage::Format_Grayscale8);
-}
-
-QImage MainWindow::addSaltPepperNoise(const QImage& img, double density) const {
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    QImage out = gray.copy();
-    density = std::clamp(density, 0.0, 1.0);
-    std::mt19937 rng(std::random_device{}());
-    std::uniform_real_distribution<double> dist(0.0, 1.0);
-    for (int y = 0; y < out.height(); ++y) {
-        uchar* line = out.scanLine(y);
-        for (int x = 0; x < out.width(); ++x) {
-            if (dist(rng) < density) {
-                line[x] = dist(rng) < 0.5 ? 0 : 255;
-            }
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::addImpulseNoise(const QImage& img, double density) const {
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    QImage out = gray.copy();
-    density = std::clamp(density, 0.0, 1.0);
-    std::mt19937 rng(std::random_device{}());
-    std::uniform_real_distribution<double> dist(0.0, 1.0);
-    std::uniform_int_distribution<int> impulse(0, 255);
-    for (int y = 0; y < out.height(); ++y) {
-        uchar* line = out.scanLine(y);
-        for (int x = 0; x < out.width(); ++x) {
-            if (dist(rng) < density) {
-                line[x] = static_cast<uchar>(impulse(rng));
-            }
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::meanFilter(const QImage& img, int kernelSize) const {
-    kernelSize = std::max(3, kernelSize | 1);
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    const int radius = kernelSize / 2;
-    const int area = kernelSize * kernelSize;
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            int sum = 0;
-            for (int ky = -radius; ky <= radius; ++ky) {
-                for (int kx = -radius; kx <= radius; ++kx) {
-                    sum += qGray(gray.pixel(std::clamp(x + kx, 0, gray.width() - 1), std::clamp(y + ky, 0, gray.height() - 1)));
-                }
-            }
-            dst[x] = static_cast<uchar>(clampToByte(sum / area));
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::medianFilter(const QImage& img, int kernelSize) const {
-    kernelSize = std::max(3, kernelSize | 1);
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    const int radius = kernelSize / 2;
-    std::vector<int> window;
-    window.reserve(kernelSize * kernelSize);
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            window.clear();
-            for (int ky = -radius; ky <= radius; ++ky) {
-                for (int kx = -radius; kx <= radius; ++kx) {
-                    window.push_back(qGray(gray.pixel(std::clamp(x + kx, 0, gray.width() - 1), std::clamp(y + ky, 0, gray.height() - 1))));
-                }
-            }
-            auto mid = window.begin() + static_cast<std::ptrdiff_t>(window.size() / 2);
-            std::nth_element(window.begin(), mid, window.end());
-            dst[x] = static_cast<uchar>(*mid);
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::maxFilter(const QImage& img, int kernelSize) const {
-    kernelSize = std::max(3, kernelSize | 1);
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    const int radius = kernelSize / 2;
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            int best = 0;
-            for (int ky = -radius; ky <= radius; ++ky) {
-                for (int kx = -radius; kx <= radius; ++kx) {
-                    best = std::max(best, qGray(gray.pixel(std::clamp(x + kx, 0, gray.width() - 1), std::clamp(y + ky, 0, gray.height() - 1))));
-                }
-            }
-            dst[x] = static_cast<uchar>(best);
-        }
-    }
-    return out;
 }
 
 void MainWindow::loadNoiseExperimentImage() {
@@ -1488,160 +1536,6 @@ void MainWindow::loadEdgeExperimentImage() {
     statusBar()->showMessage(QString::fromUtf8(u8"边缘检测输入图像已加载无") + QFileInfo(filePath).fileName());
 }
 
-QImage MainWindow::sobelEdgeDetect(const QImage& img, int kernelSize, int threshold) const {
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-
-    const int size = kernelSize >= 5 ? 5 : 3;
-    const QVector<int> deriv = (size == 5)
-        ? QVector<int>{-1, -2, 0, 2, 1}
-        : QVector<int>{-1, 0, 1};
-    const QVector<int> smooth = (size == 5)
-        ? QVector<int>{1, 4, 6, 4, 1}
-        : QVector<int>{1, 2, 1};
-    const double scale = (size == 5) ? 48.0 : 4.0;
-    const int radius = size / 2;
-    threshold = std::clamp(threshold, 0, 255);
-
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    out.fill(Qt::black);
-    auto sample = [&](int x, int y) {
-        x = std::clamp(x, 0, gray.width() - 1);
-        y = std::clamp(y, 0, gray.height() - 1);
-        return qGray(gray.pixel(x, y));
-    };
-
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            double gx = 0.0;
-            double gy = 0.0;
-            for (int ky = -radius; ky <= radius; ++ky) {
-                for (int kx = -radius; kx <= radius; ++kx) {
-                    const int value = sample(x + kx, y + ky);
-                    const int sx = deriv[kx + radius] * smooth[ky + radius];
-                    const int sy = smooth[kx + radius] * deriv[ky + radius];
-                    gx += value * sx;
-                    gy += value * sy;
-                }
-            }
-            const double magnitude = std::sqrt(gx * gx + gy * gy) / scale;
-            dst[x] = static_cast<uchar>(clampToByte(static_cast<int>(magnitude)) >= threshold ? 255 : 0);
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::prewittEdgeDetect(const QImage& img, int kernelSize, int threshold) const {
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-
-    const int size = kernelSize >= 5 ? 5 : 3;
-    const QVector<int> deriv = (size == 5)
-        ? QVector<int>{-2, -1, 0, 1, 2}
-        : QVector<int>{-1, 0, 1};
-    const QVector<int> smooth = QVector<int>(size, 1);
-    const double scale = (size == 5) ? 25.0 : 3.0;
-    const int radius = size / 2;
-    threshold = std::clamp(threshold, 0, 255);
-
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    out.fill(Qt::black);
-    auto sample = [&](int x, int y) {
-        x = std::clamp(x, 0, gray.width() - 1);
-        y = std::clamp(y, 0, gray.height() - 1);
-        return qGray(gray.pixel(x, y));
-    };
-
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            double gx = 0.0;
-            double gy = 0.0;
-            for (int ky = -radius; ky <= radius; ++ky) {
-                for (int kx = -radius; kx <= radius; ++kx) {
-                    const int value = sample(x + kx, y + ky);
-                    const int sx = deriv[kx + radius] * smooth[ky + radius];
-                    const int sy = smooth[kx + radius] * deriv[ky + radius];
-                    gx += value * sx;
-                    gy += value * sy;
-                }
-            }
-            const double magnitude = std::sqrt(gx * gx + gy * gy) / scale;
-            dst[x] = static_cast<uchar>(clampToByte(static_cast<int>(magnitude)) >= threshold ? 255 : 0);
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::laplacianEdgeDetect(const QImage& img, int kernelSize, int threshold) const {
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-
-    threshold = std::clamp(threshold, 0, 255);
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    out.fill(Qt::black);
-    auto sample = [&](int x, int y) {
-        x = std::clamp(x, 0, gray.width() - 1);
-        y = std::clamp(y, 0, gray.height() - 1);
-        return qGray(gray.pixel(x, y));
-    };
-
-    if (kernelSize >= 5) {
-        const int kernel[5][5] = {
-            {0, 0, -1, 0, 0},
-            {0, -1, -2, -1, 0},
-            {-1, -2, 16, -2, -1},
-            {0, -1, -2, -1, 0},
-            {0, 0, -1, 0, 0}
-        };
-        const int radius = 2;
-        const double scale = 16.0;
-        for (int y = 0; y < gray.height(); ++y) {
-            uchar* dst = out.scanLine(y);
-            for (int x = 0; x < gray.width(); ++x) {
-                double sum = 0.0;
-                for (int ky = -radius; ky <= radius; ++ky) {
-                    for (int kx = -radius; kx <= radius; ++kx) {
-                        sum += sample(x + kx, y + ky) * kernel[ky + radius][kx + radius];
-                    }
-                }
-                const int intensity = clampToByte(static_cast<int>(std::abs(sum) / scale));
-                dst[x] = static_cast<uchar>(intensity >= threshold ? 255 : 0);
-            }
-        }
-        return out;
-    }
-
-    const int kernel[3][3] = {
-        {0, -1, 0},
-        {-1, 4, -1},
-        {0, -1, 0}
-    };
-    const int radius = 1;
-    const double scale = 4.0;
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            double sum = 0.0;
-            for (int ky = -radius; ky <= radius; ++ky) {
-                for (int kx = -radius; kx <= radius; ++kx) {
-                    sum += sample(x + kx, y + ky) * kernel[ky + radius][kx + radius];
-                }
-            }
-            const int intensity = clampToByte(static_cast<int>(std::abs(sum) / scale));
-            dst[x] = static_cast<uchar>(intensity >= threshold ? 255 : 0);
-        }
-    }
-    return out;
-}
-
 void MainWindow::applyEdgeDetectionToExperiment() {
     if (m_edgeSourceImage.isNull()) {
         QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载输入图像"));
@@ -1745,160 +1639,6 @@ void MainWindow::loadEnhancementExperimentImage() {
         m_experimentStatusLabel->setText(QString::fromUtf8(u8"状态：已加载图像增强输入图像"));
     }
     statusBar()->showMessage(QString::fromUtf8(u8"图像增强输入图像已加载：") + QFileInfo(filePath).fileName());
-}
-
-QImage MainWindow::step1_originalImage(const QImage& img) const {
-    return img.convertToFormat(QImage::Format_Grayscale8);
-}
-
-QImage MainWindow::step2_laplacianProcess(const QImage& img) const {
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    out.fill(Qt::black);
-    const int kernel[3][3] = {
-        {0, -1, 0},
-        {-1, 4, -1},
-        {0, -1, 0}
-    };
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            int sum = 0;
-            for (int ky = -1; ky <= 1; ++ky) {
-                for (int kx = -1; kx <= 1; ++kx) {
-                    const int sx = std::clamp(x + kx, 0, gray.width() - 1);
-                    const int sy = std::clamp(y + ky, 0, gray.height() - 1);
-                    sum += qGray(gray.pixel(sx, sy)) * kernel[ky + 1][kx + 1];
-                }
-            }
-            dst[x] = static_cast<uchar>(clampToByte(std::abs(sum)));
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::step3_sharpenImage(const QImage& original, const QImage& laplacian) const {
-    QImage src = original.convertToFormat(QImage::Format_Grayscale8);
-    QImage lap = laplacian.convertToFormat(QImage::Format_Grayscale8);
-    if (src.isNull() || lap.isNull() || src.size() != lap.size()) {
-        return {};
-    }
-
-    QImage out(src.size(), QImage::Format_Grayscale8);
-    for (int y = 0; y < src.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        const uchar* sLine = src.constScanLine(y);
-        const uchar* lLine = lap.constScanLine(y);
-        for (int x = 0; x < src.width(); ++x) {
-            dst[x] = static_cast<uchar>(clampToByte(sLine[x] + lLine[x]));
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::step4_sobelProcess(const QImage& img) const {
-    QImage gray = img.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    out.fill(Qt::black);
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            int gx = 0;
-            int gy = 0;
-            for (int ky = -1; ky <= 1; ++ky) {
-                for (int kx = -1; kx <= 1; ++kx) {
-                    const int sx = std::clamp(x + kx, 0, gray.width() - 1);
-                    const int sy = std::clamp(y + ky, 0, gray.height() - 1);
-                    const int p = qGray(gray.pixel(sx, sy));
-                    const int sxKernel[3][3] = {
-                        {-1, 0, 1},
-                        {-2, 0, 2},
-                        {-1, 0, 1}
-                    };
-                    const int syKernel[3][3] = {
-                        {1, 2, 1},
-                        {0, 0, 0},
-                        {-1, -2, -1}
-                    };
-                    gx += p * sxKernel[ky + 1][kx + 1];
-                    gy += p * syKernel[ky + 1][kx + 1];
-                }
-            }
-            const int magnitude = clampToByte(static_cast<int>(std::sqrt(static_cast<double>(gx * gx + gy * gy)) / 4.0));
-            dst[x] = static_cast<uchar>(magnitude);
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::step5_meanFilterGradient(const QImage& sobel) const {
-    return meanFilter(sobel, 3);
-}
-
-QImage MainWindow::step6_maskImage(const QImage& sharpened, const QImage& gradient) const {
-    QImage a = sharpened.convertToFormat(QImage::Format_Grayscale8);
-    QImage b = gradient.convertToFormat(QImage::Format_Grayscale8);
-    if (a.isNull() || b.isNull() || a.size() != b.size()) {
-        return {};
-    }
-
-    QImage out(a.size(), QImage::Format_Grayscale8);
-    for (int y = 0; y < a.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        const uchar* aLine = a.constScanLine(y);
-        const uchar* bLine = b.constScanLine(y);
-        for (int x = 0; x < a.width(); ++x) {
-            dst[x] = static_cast<uchar>((aLine[x] * bLine[x]) / 255);
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::step7_addOriginalAndMask(const QImage& original, const QImage& mask) const {
-    QImage a = original.convertToFormat(QImage::Format_Grayscale8);
-    QImage b = mask.convertToFormat(QImage::Format_Grayscale8);
-    if (a.isNull() || b.isNull() || a.size() != b.size()) {
-        return {};
-    }
-
-    QImage out(a.size(), QImage::Format_Grayscale8);
-    for (int y = 0; y < a.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        const uchar* aLine = a.constScanLine(y);
-        const uchar* bLine = b.constScanLine(y);
-        for (int x = 0; x < a.width(); ++x) {
-            dst[x] = static_cast<uchar>(clampToByte(aLine[x] + bLine[x]));
-        }
-    }
-    return out;
-}
-
-QImage MainWindow::step8_gammaTransform(const QImage& enhanced, double gamma) const {
-    QImage gray = enhanced.convertToFormat(QImage::Format_Grayscale8);
-    if (gray.isNull()) {
-        return {};
-    }
-
-    gamma = std::max(0.1, gamma);
-    QImage out(gray.size(), QImage::Format_Grayscale8);
-    for (int y = 0; y < gray.height(); ++y) {
-        uchar* dst = out.scanLine(y);
-        const uchar* line = gray.constScanLine(y);
-        for (int x = 0; x < gray.width(); ++x) {
-            const double normalized = line[x] / 255.0;
-            const int value = static_cast<int>(std::pow(normalized, gamma) * 255.0 + 0.5);
-            dst[x] = static_cast<uchar>(clampToByte(value));
-        }
-    }
-    return out;
 }
 
 void MainWindow::startEnhancementExperiment() {
@@ -2153,6 +1893,11 @@ bool MainWindow::isSupportedImageFile(const QString& filePath) const {
     return suffix == "bmp" || suffix == "jpg" || suffix == "jpeg";
 }
 
+bool MainWindow::isSupportedDicomFile(const QString& filePath) const {
+    const QString suffix = QFileInfo(filePath).suffix().toLower();
+    return suffix == "dcm" || suffix == "dicom" || suffix == "ima";
+}
+
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
     if (!isDropOnOriginalView(event->position().toPoint())) {
         event->ignore();
@@ -2166,7 +1911,8 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
 
     const QList<QUrl> urls = event->mimeData()->urls();
     for (const QUrl& url : urls) {
-        if (url.isLocalFile() && isSupportedImageFile(url.toLocalFile())) {
+        if (url.isLocalFile() &&
+            (isSupportedImageFile(url.toLocalFile()) || isSupportedDicomFile(url.toLocalFile()))) {
             event->acceptProposedAction();
             return;
         }
@@ -2193,7 +1939,7 @@ void MainWindow::dropEvent(QDropEvent* event) {
         }
 
         const QString filePath = url.toLocalFile();
-        if (!isSupportedImageFile(filePath)) {
+        if (!isSupportedImageFile(filePath) && !isSupportedDicomFile(filePath)) {
             continue;
         }
 
@@ -2210,7 +1956,11 @@ void MainWindow::dropEvent(QDropEvent* event) {
             }
         }
 
-        displayImage(filePath);
+        if (isSupportedDicomFile(filePath)) {
+            loadDicomSeries(filePath);
+        } else {
+            displayImage(filePath);
+        }
         event->acceptProposedAction();
         return;
     }
@@ -2251,12 +2001,17 @@ void MainWindow::selectFolder() {
     if (!m_fileList) {
         QDir dir(folder);
         QStringList files = dir.entryList(
-            {"*.bmp", "*.BMP", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG"},
+            {"*.bmp", "*.BMP", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG", "*.dcm", "*.DICOM", "*.ima", "*.IMA"},
             QDir::Files,
             QDir::Name
         );
         if (!files.isEmpty()) {
-            displayImage(dir.filePath(files.first()));
+            const QString firstPath = dir.filePath(files.first());
+            if (isSupportedDicomFile(firstPath)) {
+                loadDicomSeries(folder);
+            } else {
+                displayImage(firstPath);
+            }
         }
     }
 }
@@ -2266,7 +2021,7 @@ void MainWindow::openSingleFile() {
         this,
         QStringLiteral("打开图像文件"),
         QString(),
-        QStringLiteral("图像文件 (*.bmp *.jpg *.jpeg);;所有文件 (*.*)")
+        QStringLiteral("图像文件 (*.bmp *.jpg *.jpeg *.dcm *.dicom *.ima);;所有文件 (*.*)")
     );
     if (filePath.isEmpty()) {
         return;
@@ -2285,7 +2040,11 @@ void MainWindow::openSingleFile() {
         }
     }
 
-    displayImage(filePath);
+    if (isSupportedDicomFile(filePath)) {
+        loadDicomSeries(filePath);
+    } else {
+        displayImage(filePath);
+    }
 }
 
 void MainWindow::loadImageFiles(const QString& folder) {
@@ -2295,7 +2054,7 @@ void MainWindow::loadImageFiles(const QString& folder) {
 
     QDir dir(folder);
     QStringList files = dir.entryList(
-        {"*.bmp", "*.BMP", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG"},
+        {"*.bmp", "*.BMP", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG", "*.dcm", "*.DICOM", "*.ima", "*.IMA"},
         QDir::Files,
         QDir::Name
     );
@@ -2308,7 +2067,7 @@ void MainWindow::loadImageFiles(const QString& folder) {
 
     statusBar()->showMessage(QStringLiteral("状态：在文件夹中找无%1 个支持的图像文件").arg(files.size()));
     if (files.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("该文件夹中没无BMP / JPG / JPEG 文件"));
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("该文件夹中没有可识别的 BMP / JPG / JPEG / DICOM 文件"));
         return;
     }
 }
@@ -2318,7 +2077,12 @@ void MainWindow::onFileSelected(QListWidgetItem* item) {
         return;
     }
 
-    displayImage(QDir(m_currentFolder).filePath(item->text()));
+    const QString path = QDir(m_currentFolder).filePath(item->text());
+    if (isSupportedDicomFile(path)) {
+        loadDicomSeries(path);
+    } else {
+        displayImage(path);
+    }
 }
 
 void MainWindow::displayImage(const QString& filePath) {
@@ -2372,12 +2136,16 @@ void MainWindow::displayImage(const QString& filePath) {
     m_parameterRecords.clear();
     m_historyIndex = -1;
     m_frequencyIfftSource = {};
+    m_dicomMode = false;
+    m_dicomSeries = {};
+    m_windowedSlices.clear();
+    switchToDicomMode(false);
 
     QString compressionText = (suffix == "bmp")
         ? QString::number(m_currentCompression)
         : QStringLiteral("无Qt 内部解码");
 
-    m_infoLabel->setText(
+    m_infoLabel->setPlainText(
         QStringLiteral("文件：%1\n格式：%2\n尺寸：%3 x %4\n位深：%5 位\n压缩/解码：%6\n像素总数：%7")
             .arg(QFileInfo(filePath).fileName())
             .arg(suffix.toUpper())
@@ -2393,7 +2161,729 @@ void MainWindow::displayImage(const QString& filePath) {
     statusBar()->showMessage(QStringLiteral("状态：已加载%1").arg(QFileInfo(filePath).fileName()));
 }
 
+void MainWindow::switchToDicomMode(bool enabled) {
+    if (!m_viewModeStack || !m_standardViewPage || !m_dicomViewPage) {
+        return;
+    }
+    m_dicomMode = enabled;
+    m_viewModeStack->setCurrentWidget(enabled ? m_dicomViewPage : m_standardViewPage);
+}
+
+void MainWindow::loadDicomSeries(const QString& path) {
+    DicomSeriesData series;
+    QString error;
+    QString sourcePath = path;
+
+    if (QFileInfo(path).isDir()) {
+        if (!DicomToolkit::loadDicomDirectory(path, &series, &error)) {
+            QMessageBox::critical(this, QStringLiteral("错误"), QStringLiteral("打开 DICOM 目录失败：\n") + error);
+            return;
+        }
+    } else {
+        DicomSeriesData oneFile;
+        if (!DicomToolkit::loadDicomFile(path, &oneFile, &error)) {
+            QMessageBox::critical(this, QStringLiteral("错误"), QStringLiteral("打开 DICOM 文件失败：\n") + error);
+            return;
+        }
+        const QString folder = QFileInfo(path).absolutePath();
+        if (!DicomToolkit::loadDicomDirectory(folder, &series, &error, oneFile.seriesInstanceUid)) {
+            series = oneFile;
+        } else {
+            sourcePath = folder;
+        }
+    }
+
+    m_dicomSeries = series;
+    m_windowedSlices = series.rawSlices;
+    m_dicomProcessedSlices.clear();
+    m_dicomSegmentationInputSlices.clear();
+    m_cachedWindowWidth = -1.0;
+    m_cachedWindowCenter = std::numeric_limits<double>::lowest();
+    m_dicomAxialIndex = std::clamp(static_cast<int>(series.rawSlices.size() / 2), 0, std::max(0, static_cast<int>(series.rawSlices.size()) - 1));
+    m_dicomCoronalIndex = std::clamp(series.height / 2, 0, std::max(0, series.height - 1));
+    m_dicomSagittalIndex = std::clamp(series.width / 2, 0, std::max(0, series.width - 1));
+    m_dicomWindowWidth = series.defaultWindowWidth;
+    m_dicomWindowCenter = series.defaultWindowCenter;
+
+    m_currentFile = QFileInfo(path).isDir() ? sourcePath : path;
+    m_currentFolder = QFileInfo(sourcePath).isDir() ? sourcePath : QFileInfo(sourcePath).absolutePath();
+    m_currentWidth = series.width;
+    m_currentHeight = series.height;
+    m_currentBitCount = series.bitDepth;
+    m_currentCompression = 0;
+    m_originalImage = {};
+    m_filteredImage = {};
+    m_resultHistory.clear();
+    m_chainHistory.clear();
+    m_processingChain.clear();
+    m_parameterHistory.clear();
+    m_parameterRecords.clear();
+    m_historyIndex = -1;
+    m_segmentationMaskSlices.clear();
+    invalidateSegmentationSurfaceCache();
+    clearSeedHistory();
+    m_seedEditMode = SeedEditMode::Navigate;
+    if (m_seedModeCombo) {
+        m_seedModeCombo->blockSignals(true);
+        m_seedModeCombo->setCurrentIndex(0);
+        m_seedModeCombo->blockSignals(false);
+    }
+    m_loadedSegData = {};
+
+    if (m_windowWidthSlider) m_windowWidthSlider->setValue(static_cast<int>(m_dicomWindowWidth));
+    if (m_windowCenterSlider) m_windowCenterSlider->setValue(static_cast<int>(m_dicomWindowCenter));
+    if (m_axialSlider) m_axialSlider->setRange(0, std::max(0, static_cast<int>(series.rawSlices.size()) - 1));
+    if (m_coronalSlider) m_coronalSlider->setRange(0, std::max(0, series.height - 1));
+    if (m_sagittalSlider) m_sagittalSlider->setRange(0, std::max(0, series.width - 1));
+    if (m_sliceNavigationController) {
+        SliceNavigationController::VolumeGeometry geometry;
+        geometry.width = series.width;
+        geometry.height = series.height;
+        geometry.depth = static_cast<int>(series.rawSlices.size());
+        geometry.spacingX = series.pixelSpacingX;
+        geometry.spacingY = series.pixelSpacingY;
+        geometry.spacingZ = series.sliceThickness;
+        geometry.origin = series.origin;
+        geometry.rowDirection = series.rowDirection;
+        geometry.columnDirection = series.columnDirection;
+        geometry.sliceDirection = series.sliceDirection;
+        m_sliceNavigationController->configure(geometry);
+    } else {
+        if (m_axialSlider) m_axialSlider->setValue(m_dicomAxialIndex);
+        if (m_coronalSlider) m_coronalSlider->setValue(m_dicomCoronalIndex);
+        if (m_sagittalSlider) m_sagittalSlider->setValue(m_dicomSagittalIndex);
+    }
+
+    switchToDicomMode(true);
+    updateDicomViews();
+    updateSegmentationControls();
+    updateProcessingStatus(QString::fromUtf8(u8"DICOM 序列已加载"));
+    statusBar()->showMessage(QStringLiteral("状态：已加载 DICOM 序列，切片数 %1").arg(series.rawSlices.size()));
+}
+
+void MainWindow::importSegFile() {
+    if (!m_dicomMode || m_dicomSeries.rawSlices.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先加载对应的 CT DICOM 序列，再导入 SEG"));
+        return;
+    }
+
+    const QString segPath = QFileDialog::getOpenFileName(
+        this,
+        QStringLiteral("导入 DICOM SEG"),
+        m_currentFolder,
+        QStringLiteral("DICOM SEG (*.dcm *.dicom *.ima);;所有文件 (*.*)")
+    );
+    if (segPath.isEmpty()) {
+        return;
+    }
+
+    DicomSegData seg;
+    QString error;
+    if (!DicomSegLoader::loadSegFile(segPath, m_dicomSeries, &seg, &error)) {
+        QMessageBox::critical(this, QStringLiteral("错误"), QStringLiteral("导入 SEG 失败：\n") + error);
+        return;
+    }
+
+    m_loadedSegData = seg;
+    m_segmentationMaskSlices = seg.alignedMaskSlices;
+    invalidateSegmentationSurfaceCache();
+    clearSeedHistory();
+    m_seedEditMode = SeedEditMode::Navigate;
+    if (m_seedModeCombo) {
+        m_seedModeCombo->blockSignals(true);
+        m_seedModeCombo->setCurrentIndex(0);
+        m_seedModeCombo->blockSignals(false);
+    }
+    m_showSegmentation = true;
+    if (m_showSegmentationCheck) {
+        m_showSegmentationCheck->setChecked(true);
+    }
+    m_parameterRecords.append(QStringLiteral("SEG: 标签=%1, 算法=%2, 帧数=%3")
+                                  .arg(m_loadedSegData.segmentLabel)
+                                  .arg(m_loadedSegData.segmentAlgorithmType)
+                                  .arg(m_loadedSegData.alignedMaskSlices.size()));
+    int cx = 0, cy = 0, cz = 0;
+    const int bestAxial = findBestSegmentationAxialSlice();
+    if (findSegmentationCentroid(&cx, &cy, &cz)) {
+        if (bestAxial >= 0) {
+            cz = bestAxial;
+        }
+        if (m_sliceNavigationController) {
+            m_sliceNavigationController->setSagittalIndex(cx);
+            m_sliceNavigationController->setCoronalIndex(cy);
+            m_sliceNavigationController->setAxialIndex(cz);
+        } else {
+            m_dicomSagittalIndex = cx;
+            m_dicomCoronalIndex = cy;
+            m_dicomAxialIndex = cz;
+        }
+    }
+    updateSegmentationControls();
+    rebuildSegmentationPreview();
+    m_parameterRecords.append(segmentationDebugSummary());
+    updateProcessingStatus(QString::fromUtf8(u8"SEG 已导入并完成对齐"));
+    statusBar()->showMessage(segmentationDebugSummary());
+}
+
+void MainWindow::updateDicomSliceIndex(int index) {
+    if (m_sliceNavigationController) {
+        m_sliceNavigationController->setAxialIndex(index);
+    } else {
+        m_dicomAxialIndex = index;
+        updateDicomViews();
+    }
+}
+
+void MainWindow::updateDicomWindowWidth(int value) {
+    m_dicomWindowWidth = std::max(1, value);
+    if (m_windowWidthValueLabel) {
+        m_windowWidthValueLabel->setText(QString::number(static_cast<int>(m_dicomWindowWidth)));
+    }
+    updateDicomViews();
+}
+
+void MainWindow::updateDicomWindowCenter(int value) {
+    m_dicomWindowCenter = value;
+    if (m_windowCenterValueLabel) {
+        m_windowCenterValueLabel->setText(QString::number(static_cast<int>(m_dicomWindowCenter)));
+    }
+    updateDicomViews();
+}
+
+void MainWindow::onSliceNavigationChanged(const SliceNavigationController::State& state) {
+    m_dicomAxialIndex = state.axialIndex;
+    m_dicomCoronalIndex = state.coronalIndex;
+    m_dicomSagittalIndex = state.sagittalIndex;
+
+    if (m_axialSlider && m_axialSlider->value() != state.axialIndex) {
+        m_axialSlider->blockSignals(true);
+        m_axialSlider->setValue(state.axialIndex);
+        m_axialSlider->blockSignals(false);
+    }
+    if (m_coronalSlider && m_coronalSlider->value() != state.coronalIndex) {
+        m_coronalSlider->blockSignals(true);
+        m_coronalSlider->setValue(state.coronalIndex);
+        m_coronalSlider->blockSignals(false);
+    }
+    if (m_sagittalSlider && m_sagittalSlider->value() != state.sagittalIndex) {
+        m_sagittalSlider->blockSignals(true);
+        m_sagittalSlider->setValue(state.sagittalIndex);
+        m_sagittalSlider->blockSignals(false);
+    }
+    updateDicomViews();
+    statusBar()->showMessage(
+        QStringLiteral("状态：序列=%1 | 切片 A/C/S=%2/%3/%4 | WW/WL=%5/%6 | Voxel=(%7,%8,%9) | World=(%10,%11,%12)")
+            .arg(QFileInfo(m_currentFile).fileName())
+            .arg(state.axialIndex)
+            .arg(state.coronalIndex)
+            .arg(state.sagittalIndex)
+            .arg(static_cast<int>(m_dicomWindowWidth))
+            .arg(static_cast<int>(m_dicomWindowCenter))
+            .arg(static_cast<int>(state.voxel.x()))
+            .arg(static_cast<int>(state.voxel.y()))
+            .arg(static_cast<int>(state.voxel.z()))
+            .arg(state.world.x(), 0, 'f', 2)
+            .arg(state.world.y(), 0, 'f', 2)
+            .arg(state.world.z(), 0, 'f', 2)
+    );
+}
+
+void MainWindow::updateSegmentationControls() {
+    const bool segLoaded = m_loadedSegData.valid;
+    if (m_segmentationPanelStack) {
+        m_segmentationPanelStack->setCurrentWidget(segLoaded ? m_segInfoPage : m_algorithmSegmentationPage);
+    }
+    if (m_segInfoLabel) {
+        m_segInfoLabel->setText(segLoaded
+            ? QStringLiteral("标签：%1\n算法：%2\n引用序列：%3\n帧数：%4\n来源：DICOM SEG")
+                  .arg(m_loadedSegData.segmentLabel)
+                  .arg(m_loadedSegData.segmentAlgorithmType)
+                  .arg(m_loadedSegData.referencedSeriesInstanceUid)
+                  .arg(m_loadedSegData.alignedMaskSlices.size())
+            : QString::fromUtf8(u8"当前未导入 SEG，将使用算法分割"));
+    }
+    const bool regionGrow = m_segmentationMethod == SegmentationMethod::RegionGrow;
+    const bool manualThreshold = m_segmentationMethod == SegmentationMethod::Threshold;
+    if (m_seedModeCombo) {
+        m_seedModeCombo->setEnabled(regionGrow && !segLoaded);
+    }
+    if (m_segmentationThresholdSlider) {
+        m_segmentationThresholdSlider->setEnabled(manualThreshold && !segLoaded);
+    }
+    if (m_segmentationToleranceSlider) {
+        m_segmentationToleranceSlider->setEnabled(regionGrow && !segLoaded);
+    }
+}
+
+void MainWindow::clearLoadedSeg() {
+    m_loadedSegData = {};
+    m_segmentationMaskSlices.clear();
+    invalidateSegmentationSurfaceCache();
+    m_showSegmentation = false;
+    clearSeedHistory();
+    m_seedEditMode = SeedEditMode::Navigate;
+    if (m_seedModeCombo) {
+        m_seedModeCombo->blockSignals(true);
+        m_seedModeCombo->setCurrentIndex(0);
+        m_seedModeCombo->blockSignals(false);
+    }
+    if (m_showSegmentationCheck) {
+        m_showSegmentationCheck->setChecked(false);
+    }
+    updateSegmentationControls();
+    rebuildSegmentationPreview();
+}
+
+void MainWindow::runDicomSegmentation() {
+    if (!m_dicomMode || m_windowedSlices.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先加载 DICOM 序列"));
+        return;
+    }
+    if (m_segmentationMethod == SegmentationMethod::RegionGrow && m_segmentationSeeds.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("区域生长模式需要先在视图中添加前景/背景种子"));
+        return;
+    }
+    const QVector<QImage> segmentationInput = !m_dicomSegmentationInputSlices.isEmpty()
+        ? m_dicomSegmentationInputSlices
+        : currentDicomProcessingInput();
+    m_segmentationMaskSlices = SegmentVolume::run(
+        segmentationInput,
+        m_segmentationMethod,
+        m_segmentationSeeds,
+        m_segmentationParams
+    );
+    invalidateSegmentationSurfaceCache();
+    rebuildSegmentationPreview();
+    updateProcessingStatus(QString::fromUtf8(u8"分割已完成"));
+}
+
+void MainWindow::clearSegmentationSeeds() {
+    if (!m_segmentationSeeds.isEmpty()) {
+        pushSeedHistorySnapshot({});
+        applyCurrentSeedHistory(QString::fromUtf8(u8"已清空种子"));
+        return;
+    }
+    rebuildSegmentationPreview();
+}
+
+void MainWindow::clearSeedHistory() {
+    m_segmentationSeeds.clear();
+    m_seedHistory.clear();
+    m_seedHistory.append(QVector<SegmentationSeedPoint>());
+    m_seedHistoryIndex = 0;
+}
+
+void MainWindow::pushSeedHistorySnapshot(const QVector<SegmentationSeedPoint>& seeds) {
+    if (m_seedHistoryIndex < 0) {
+        clearSeedHistory();
+    }
+    if (m_seedHistoryIndex >= 0 && m_seedHistoryIndex < m_seedHistory.size() &&
+        m_seedHistory[m_seedHistoryIndex] == seeds) {
+        return;
+    }
+    while (m_seedHistory.size() > m_seedHistoryIndex + 1) {
+        m_seedHistory.removeLast();
+    }
+    m_seedHistory.append(seeds);
+    m_seedHistoryIndex = m_seedHistory.size() - 1;
+}
+
+void MainWindow::applyCurrentSeedHistory(const QString& message) {
+    if (m_seedHistoryIndex >= 0 && m_seedHistoryIndex < m_seedHistory.size()) {
+        m_segmentationSeeds = m_seedHistory[m_seedHistoryIndex];
+    } else {
+        m_segmentationSeeds.clear();
+    }
+    rebuildSegmentationPreview();
+    updateProcessingStatus(message);
+}
+
+bool MainWindow::canUndoSeedHistory() const {
+    return m_dicomMode && m_seedHistoryIndex > 0;
+}
+
+bool MainWindow::canRedoSeedHistory() const {
+    return m_dicomMode && m_seedHistoryIndex >= 0 && m_seedHistoryIndex + 1 < m_seedHistory.size();
+}
+
+bool MainWindow::isSeedEditingEnabled() const {
+    return m_dicomMode &&
+        !m_loadedSegData.valid &&
+        m_segmentationMethod == SegmentationMethod::RegionGrow &&
+        (m_seedEditMode == SeedEditMode::Foreground || m_seedEditMode == SeedEditMode::Background);
+}
+
+void MainWindow::appendSeedPoint(const SegmentationSeedPoint& seed) {
+    QVector<SegmentationSeedPoint> nextSeeds = m_segmentationSeeds;
+    nextSeeds.append(seed);
+    pushSeedHistorySnapshot(nextSeeds);
+    applyCurrentSeedHistory(QString::fromUtf8(u8"已添加种子点"));
+}
+
+bool MainWindow::findSegmentationCentroid(int* outX, int* outY, int* outZ) const {
+    if (m_segmentationMaskSlices.isEmpty()) {
+        return false;
+    }
+
+    double sumX = 0.0;
+    double sumY = 0.0;
+    double sumZ = 0.0;
+    double weight = 0.0;
+    for (int z = 0; z < m_segmentationMaskSlices.size(); ++z) {
+        const QImage mask = m_segmentationMaskSlices[z].convertToFormat(QImage::Format_Grayscale8);
+        for (int y = 0; y < mask.height(); ++y) {
+            const uchar* row = mask.constScanLine(y);
+            for (int x = 0; x < mask.width(); ++x) {
+                if (row[x] == 0) {
+                    continue;
+                }
+                sumX += x;
+                sumY += y;
+                sumZ += z;
+                weight += 1.0;
+            }
+        }
+    }
+
+    if (weight <= 0.0) {
+        return false;
+    }
+    if (outX) *outX = static_cast<int>(std::round(sumX / weight));
+    if (outY) *outY = static_cast<int>(std::round(sumY / weight));
+    if (outZ) *outZ = static_cast<int>(std::round(sumZ / weight));
+    return true;
+}
+
+int MainWindow::findBestSegmentationAxialSlice() const {
+    if (m_segmentationMaskSlices.isEmpty()) {
+        return -1;
+    }
+    int bestIndex = -1;
+    int bestSum = -1;
+    for (int z = 0; z < m_segmentationMaskSlices.size(); ++z) {
+        const QImage mask = m_segmentationMaskSlices[z].convertToFormat(QImage::Format_Grayscale8);
+        int sum = 0;
+        for (int y = 0; y < mask.height(); ++y) {
+            const uchar* row = mask.constScanLine(y);
+            for (int x = 0; x < mask.width(); ++x) {
+                if (row[x] > 0) {
+                    ++sum;
+                }
+            }
+        }
+        if (sum > bestSum) {
+            bestSum = sum;
+            bestIndex = z;
+        }
+    }
+    return bestIndex;
+}
+
+QString MainWindow::segmentationDebugSummary() const {
+    if (m_segmentationMaskSlices.isEmpty()) {
+        return QString::fromUtf8(u8"SEG 调试：当前没有 mask");
+    }
+
+    int first = -1;
+    int last = -1;
+    int count = 0;
+    int currentCount = 0;
+    int bestIndex = -1;
+    int bestSum = -1;
+    for (int z = 0; z < m_segmentationMaskSlices.size(); ++z) {
+        const QImage mask = m_segmentationMaskSlices[z].convertToFormat(QImage::Format_Grayscale8);
+        int sum = 0;
+        for (int y = 0; y < mask.height(); ++y) {
+            const uchar* row = mask.constScanLine(y);
+            for (int x = 0; x < mask.width(); ++x) {
+                if (row[x] > 0) {
+                    ++sum;
+                }
+            }
+        }
+        if (sum > 0) {
+            if (first < 0) {
+                first = z;
+            }
+            last = z;
+            ++count;
+        }
+        if (sum > bestSum) {
+            bestSum = sum;
+            bestIndex = z;
+        }
+        if (z == m_dicomAxialIndex) {
+            currentCount = sum;
+        }
+    }
+
+    int cx = 0, cy = 0, cz = 0;
+    const bool hasCentroid = findSegmentationCentroid(&cx, &cy, &cz);
+    return QStringLiteral("SEG 调试：非空切片=%1, 范围=[%2,%3], 最佳Axial=%4, 当前切片=%5, 当前mask像素=%6, 重心=(%7,%8,%9)")
+        .arg(count)
+        .arg(first)
+        .arg(last)
+        .arg(bestIndex)
+        .arg(m_dicomAxialIndex)
+        .arg(currentCount)
+        .arg(hasCentroid ? cx : -1)
+        .arg(hasCentroid ? cy : -1)
+        .arg(hasCentroid ? cz : -1);
+}
+
+QImage MainWindow::buildCoronalMaskSlice() const {
+    if (m_segmentationMaskSlices.isEmpty()) {
+        return {};
+    }
+    return DicomToolkit::buildCoronalSlice(m_segmentationMaskSlices, m_dicomCoronalIndex);
+}
+
+QImage MainWindow::buildSagittalMaskSlice() const {
+    if (m_segmentationMaskSlices.isEmpty()) {
+        return {};
+    }
+    return DicomToolkit::buildSagittalSlice(m_segmentationMaskSlices, m_dicomSagittalIndex);
+}
+
+void MainWindow::rebuildSegmentationPreview() {
+    if (!m_dicomMode || m_windowedSlices.isEmpty()) {
+        return;
+    }
+    refreshSegmentationSurfaceCache();
+    updateDicomViews();
+}
+
+void MainWindow::invalidateSegmentationSurfaceCache() {
+    m_segmentationSurfaceCache = {};
+    m_segmentationSurfaceDirty = true;
+    m_segmentationSurfaceFinalReady = false;
+    ++m_segmentationSurfaceGeneration;
+}
+
+void MainWindow::refreshSegmentationSurfaceCache() {
+    if (!m_segmentationSurfaceDirty) {
+        return;
+    }
+    scheduleSegmentationSurfaceBuild();
+}
+
+void MainWindow::scheduleSegmentationSurfaceBuild() {
+    m_segmentationSurfaceDirty = false;
+    m_segmentationSurfaceFinalReady = false;
+
+    if (!m_showSegmentation || m_segmentationMaskSlices.isEmpty()) {
+        m_segmentationSurfaceCache = {};
+        updateSegmentationSurfaceView();
+        return;
+    }
+
+    const int generation = m_segmentationSurfaceGeneration;
+    const QVector<QImage> masks = m_segmentationMaskSlices;
+    const double spacingX = m_dicomSeries.pixelSpacingX;
+    const double spacingY = m_dicomSeries.pixelSpacingY;
+    const double spacingZ = m_dicomSeries.sliceThickness;
+    const int maxDim = std::max({m_dicomSeries.width, m_dicomSeries.height, static_cast<int>(m_segmentationMaskSlices.size())});
+    const int previewStep = maxDim >= 512 ? 4 : (maxDim >= 256 ? 2 : 1);
+
+    m_segmentationSurfaceCache = {};
+    updateSegmentationSurfaceView();
+
+    m_segmentationPreviewWatcher->setProperty("generation", generation);
+    m_segmentationPreviewWatcher->setFuture(QtConcurrent::run([masks, spacingX, spacingY, spacingZ, previewStep]() {
+        return SegmentationMeshBuilder::buildSurfaceMesh(masks, spacingX, spacingY, spacingZ, previewStep);
+    }));
+
+    m_segmentationFullWatcher->setProperty("generation", generation);
+    m_segmentationFullWatcher->setFuture(QtConcurrent::run([masks, spacingX, spacingY, spacingZ]() {
+        return SegmentationMeshBuilder::buildSurfaceMesh(masks, spacingX, spacingY, spacingZ, 1);
+    }));
+}
+
+void MainWindow::applySegmentationSurfaceResult(const SegmentationSurfaceData& surface, int generation, bool finalResult) {
+    if (generation != m_segmentationSurfaceGeneration || !m_showSegmentation) {
+        return;
+    }
+
+    if (!surface.isEmpty() || m_segmentationSurfaceCache.isEmpty()) {
+        m_segmentationSurfaceCache = surface;
+    }
+    if (finalResult) {
+        m_segmentationSurfaceFinalReady = true;
+    }
+    updateSegmentationSurfaceView();
+}
+
+void MainWindow::updateSegmentationSurfaceView() {
+    if (!m_volumeView) {
+        return;
+    }
+
+    const int depth = std::max(1, static_cast<int>(m_dicomSeries.rawSlices.size()));
+    m_volumeView->setSliceGeometry(
+        std::max(1, m_dicomSeries.width),
+        std::max(1, m_dicomSeries.height),
+        depth,
+        m_dicomSeries.pixelSpacingX,
+        m_dicomSeries.pixelSpacingY,
+        m_dicomSeries.sliceThickness
+    );
+    m_volumeView->setSlicePlanes(m_dicomAxialIndex, m_dicomCoronalIndex, m_dicomSagittalIndex);
+
+    if (m_showSegmentation && !m_segmentationSurfaceCache.isEmpty()) {
+        m_volumeView->setSurfaceData(m_segmentationSurfaceCache);
+    } else {
+        m_volumeView->clearSurfaceData();
+    }
+}
+
+void MainWindow::updateDicomViews() {
+    if (!m_dicomMode || m_dicomSeries.rawSlices.isEmpty()) {
+        return;
+    }
+
+    if (m_windowedSlices.size() != m_dicomSeries.rawSlices.size() ||
+        !qFuzzyCompare(m_cachedWindowWidth + 1.0, m_dicomWindowWidth + 1.0) ||
+        !qFuzzyCompare(m_cachedWindowCenter + 1.0, m_dicomWindowCenter + 1.0)) {
+        m_windowedSlices.clear();
+        m_windowedSlices.reserve(m_dicomSeries.rawSlices.size());
+        for (const QImage& slice : m_dicomSeries.rawSlices) {
+            m_windowedSlices.append(DicomToolkit::applyWindowLevel(slice, m_dicomWindowCenter, m_dicomWindowWidth));
+        }
+        m_cachedWindowWidth = m_dicomWindowWidth;
+        m_cachedWindowCenter = m_dicomWindowCenter;
+    }
+
+    const QVector<QImage> displaySource = m_dicomProcessedSlices.isEmpty() ? m_windowedSlices : m_dicomProcessedSlices;
+
+    const int depth = static_cast<int>(displaySource.size());
+    m_dicomAxialIndex = std::clamp(m_dicomAxialIndex, 0, depth - 1);
+    m_dicomCoronalIndex = std::clamp(m_dicomCoronalIndex, 0, std::max(0, m_dicomSeries.height - 1));
+    m_dicomSagittalIndex = std::clamp(m_dicomSagittalIndex, 0, std::max(0, m_dicomSeries.width - 1));
+
+    QImage axial = displaySource[m_dicomAxialIndex];
+    QImage coronal = DicomToolkit::buildCoronalSlice(displaySource, m_dicomCoronalIndex);
+    QImage sagittal = DicomToolkit::buildSagittalSlice(displaySource, m_dicomSagittalIndex);
+
+    if (m_showSegmentation && !m_segmentationMaskSlices.isEmpty()) {
+        axial = SegmentationOverlay::overlayMask(axial, m_segmentationMaskSlices.value(m_dicomAxialIndex), QColor("#17b51f"));
+        coronal = SegmentationOverlay::overlayMask(coronal, buildCoronalMaskSlice(), QColor("#17b51f"));
+        sagittal = SegmentationOverlay::overlayMask(sagittal, buildSagittalMaskSlice(), QColor("#17b51f"));
+    }
+    axial = SegmentationOverlay::drawSeeds(axial, m_segmentationSeeds, m_dicomAxialIndex, Qt::Orientation::Horizontal, -1);
+    coronal = SegmentationOverlay::drawSeeds(coronal, m_segmentationSeeds, depth - 1, Qt::Orientation::Horizontal, m_dicomCoronalIndex);
+    sagittal = SegmentationOverlay::drawSeeds(sagittal, m_segmentationSeeds, depth - 1, Qt::Orientation::Vertical, m_dicomSagittalIndex);
+    sagittal = rotateSagittalForDisplay(sagittal);
+
+    if (m_axialView) { m_axialView->setImages(axial, axial); m_axialView->setZoomFactor(m_zoom); }
+    if (m_coronalView) { m_coronalView->setImages(coronal, coronal); m_coronalView->setZoomFactor(m_zoom); }
+    if (m_sagittalView) { m_sagittalView->setImages(sagittal, sagittal); m_sagittalView->setZoomFactor(m_zoom); }
+    if (m_volumeView) {
+        updateSegmentationSurfaceView();
+    }
+
+    m_filteredImage = axial;
+    if (m_infoLabel) {
+        m_infoLabel->setPlainText(
+            QStringLiteral("文件：%1\n格式：DICOM 序列\n尺寸：%2 x %3\n切片数：%4\n窗宽/窗位：%5 / %6\nSEG：%7")
+                .arg(QFileInfo(m_currentFile).fileName())
+                .arg(m_dicomSeries.width)
+                .arg(m_dicomSeries.height)
+                .arg(depth)
+                .arg(static_cast<int>(m_dicomWindowWidth))
+                .arg(static_cast<int>(m_dicomWindowCenter))
+                .arg(m_loadedSegData.valid
+                    ? QStringLiteral("%1 (%2)").arg(m_loadedSegData.segmentLabel, m_loadedSegData.segmentAlgorithmType)
+                    : QString::fromUtf8(u8"未加载"))
+        );
+    }
+}
+
+QImage MainWindow::currentDisplayImage() const {
+    if (m_dicomMode && !m_windowedSlices.isEmpty()) {
+        return m_windowedSlices.value(m_dicomAxialIndex);
+    }
+    if (!m_filteredImage.isNull()) {
+        return m_filteredImage;
+    }
+    return m_originalImage;
+}
+
+QVector<QImage> MainWindow::currentDicomProcessingInput() const {
+    if (!m_dicomProcessedSlices.isEmpty()) {
+        return m_dicomProcessedSlices;
+    }
+    return m_windowedSlices;
+}
+
+void MainWindow::applyDicomAction(const QString& actionName) {
+    if (!m_dicomMode || m_windowedSlices.isEmpty()) {
+        return;
+    }
+
+    DicomProcessRequest request;
+    request.actionName = actionName;
+
+    if (actionName == QString::fromUtf8(u8"均值滤波") ||
+        actionName == QString::fromUtf8(u8"中值滤波") ||
+        actionName == QString::fromUtf8(u8"最大值滤波")) {
+        bool ok = false;
+        const int kernel = QInputDialog::getInt(this, QString::fromUtf8(u8"滤波参数"), QString::fromUtf8(u8"核大小"), 3, 3, 15, 2, &ok);
+        if (!ok) return;
+        request.kernelSize = kernel | 1;
+    } else if (actionName == QString::fromUtf8(u8"Gamma 变换")) {
+        bool ok = false;
+        const double gamma = QInputDialog::getDouble(this, QString::fromUtf8(u8"Gamma 参数"), QStringLiteral("Gamma"), 0.8, 0.1, 5.0, 2, &ok);
+        if (!ok) return;
+        request.gamma = gamma;
+    } else if (actionName == QString::fromUtf8(u8"理想低通") ||
+               actionName == QString::fromUtf8(u8"巴特沃斯低通") ||
+               actionName == QString::fromUtf8(u8"理想高通") ||
+               actionName == QString::fromUtf8(u8"巴特沃斯高通") ||
+               actionName == QString::fromUtf8(u8"同态滤波")) {
+        bool ok = false;
+        const double cutoff = QInputDialog::getDouble(this, QString::fromUtf8(u8"频域参数"), QString::fromUtf8(u8"截止半径"), 40.0, 1.0, 512.0, 1, &ok);
+        if (!ok) return;
+        request.cutoff = cutoff;
+    }
+
+    const DicomProcessingScope scope = (m_dicomProcessingScopeCombo && m_dicomProcessingScopeCombo->currentIndex() == 1)
+        ? DicomProcessingScope::WholeVolume
+        : DicomProcessingScope::CurrentSlice;
+    const int targetIndex = m_dicomProcessingTargetCombo ? m_dicomProcessingTargetCombo->currentIndex() : 0;
+    QVector<QImage> input = currentDicomProcessingInput();
+    if (targetIndex == 1 && !m_dicomSegmentationInputSlices.isEmpty()) {
+        input = m_dicomSegmentationInputSlices;
+    }
+
+    QVector<QImage> output;
+    QString error;
+    if (!DicomProcessingPipeline::apply(input, scope, m_dicomAxialIndex, request, &output, &error)) {
+        QMessageBox::warning(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"DICOM 处理失败：\n") + error);
+        return;
+    }
+
+    if (targetIndex == 0) {
+        m_dicomProcessedSlices = output;
+    } else if (targetIndex == 1) {
+        m_dicomSegmentationInputSlices = output;
+        m_dicomProcessedSlices = output;
+    } else {
+        m_dicomProcessedSlices = output;
+    }
+
+    m_parameterRecords.append(QStringLiteral("%1: 模式=%2, 目标=%3")
+        .arg(actionName)
+        .arg(scope == DicomProcessingScope::WholeVolume ? QString::fromUtf8(u8"全体数据") : QString::fromUtf8(u8"当前切片"))
+        .arg(m_dicomProcessingTargetCombo ? m_dicomProcessingTargetCombo->currentText() : QString::fromUtf8(u8"原图")));
+    rebuildSegmentationPreview();
+    updateProcessingStatus(QString::fromUtf8(u8"DICOM 处理已完成"));
+}
+
 void MainWindow::renderCurrentImage() {
+    if (m_dicomMode) {
+        updateDicomViews();
+        return;
+    }
     if (m_originalImage.isNull()) {
         return;
     }
@@ -2655,7 +3145,8 @@ int MainWindow::clampToByte(int value) {
 }
 
 void MainWindow::updateHistogram() {
-    if (m_originalImage.isNull()) {
+    const QImage source = currentDisplayImage();
+    if (source.isNull()) {
         if (m_histogramLabel) {
             m_histogramLabel->setPixmap(QPixmap());
             m_histogramLabel->setText(QStringLiteral("暂无直方图"));
@@ -2667,7 +3158,6 @@ void MainWindow::updateHistogram() {
         return;
     }
 
-    const QImage& source = m_filteredImage.isNull() ? m_originalImage : m_filteredImage;
     const QSize target = m_histogramLabel->size().isValid() ? m_histogramLabel->size() : QSize(180, 80);
     QPixmap hist = ImageHistTools::drawGrayHistogram(source, target.width(), target.height());
     m_histogramLabel->setPixmap(hist);
@@ -2716,6 +3206,15 @@ void MainWindow::pushProcessingResult(const QImage& image, const QString& action
 }
 
 void MainWindow::refreshWorkbenchImages() {
+    if (m_dicomMode) {
+        updateDicomViews();
+        if (m_zoomLabel) {
+            m_zoomLabel->setText(QStringLiteral("%1%").arg(static_cast<int>(m_zoom * 100)));
+        }
+        updateHistogram();
+        return;
+    }
+
     if (m_imageView) {
         m_imageView->setImages(m_originalImage, m_originalImage);
         m_imageView->setZoomFactor(m_zoom);
@@ -2770,14 +3269,16 @@ void MainWindow::updateProcessingStatus(const QString& message) {
             : QString::fromUtf8(u8"当前处理：") + m_processingChain.join(QString::fromUtf8(u8" 步"));
         m_chainLabel->setText(chain);
     }
+    const bool useSeedHistory = m_dicomMode && (!m_seedHistory.isEmpty() || !m_segmentationSeeds.isEmpty());
     if (m_undoButton) {
-        m_undoButton->setEnabled(m_historyIndex >= 0);
+        m_undoButton->setEnabled(useSeedHistory ? canUndoSeedHistory() : (m_historyIndex >= 0));
     }
     if (m_redoButton) {
-        m_redoButton->setEnabled(m_historyIndex + 1 < m_resultHistory.size());
+        m_redoButton->setEnabled(useSeedHistory ? canRedoSeedHistory() : (m_historyIndex + 1 < m_resultHistory.size()));
     }
     if (m_resetButton) {
-        m_resetButton->setEnabled(!m_resultHistory.isEmpty());
+        m_resetButton->setEnabled(useSeedHistory ? (!m_seedHistory.isEmpty() && (m_seedHistory.size() > 1 || !m_segmentationSeeds.isEmpty()))
+                                                 : !m_resultHistory.isEmpty());
     }
     if (!message.isEmpty()) {
         statusBar()->showMessage(message);
@@ -2808,6 +3309,11 @@ void MainWindow::updateParameterStatus() {
 }
 
 void MainWindow::undoProcessing() {
+    if (canUndoSeedHistory()) {
+        --m_seedHistoryIndex;
+        applyCurrentSeedHistory(QString::fromUtf8(u8"已撤回上一个种子记录"));
+        return;
+    }
     if (m_historyIndex < 0) {
         return;
     }
@@ -2819,6 +3325,11 @@ void MainWindow::undoProcessing() {
 }
 
 void MainWindow::redoProcessing() {
+    if (canRedoSeedHistory()) {
+        ++m_seedHistoryIndex;
+        applyCurrentSeedHistory(QString::fromUtf8(u8"已恢复下一个种子记录"));
+        return;
+    }
     if (m_historyIndex + 1 >= m_resultHistory.size()) {
         return;
     }
@@ -2830,6 +3341,12 @@ void MainWindow::redoProcessing() {
 }
 
 void MainWindow::resetProcessing() {
+    if (m_dicomMode && (!m_seedHistory.isEmpty() && (m_seedHistory.size() > 1 || !m_segmentationSeeds.isEmpty()))) {
+        clearSeedHistory();
+        rebuildSegmentationPreview();
+        updateProcessingStatus(QString::fromUtf8(u8"种子记录已重置"));
+        return;
+    }
     m_resultHistory.clear();
     m_chainHistory.clear();
     m_processingChain.clear();
@@ -2844,6 +3361,10 @@ void MainWindow::resetProcessing() {
 }
 
 void MainWindow::applyProcessingAction(const QString& actionName) {
+    if (m_dicomMode) {
+        applyDicomAction(actionName);
+        return;
+    }
     if (m_originalImage.isNull()) {
         QMessageBox::information(this, QString::fromUtf8(u8"提示"), QString::fromUtf8(u8"请先加载影像"));
         return;

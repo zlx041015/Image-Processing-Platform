@@ -1,18 +1,28 @@
 ﻿#pragma once
 
+#include "DicomSegLoader.h"
+#include "DicomToolkit.h"
+#include "DicomProcessingPipeline.h"
 #include "ImageRestoration.h"
+#include "SegmentationMeshBuilder.h"
+#include "SliceNavigationController.h"
+#include "SegmentVolume.h"
 
 #include <QImage>
+#include <QFutureWatcher>
 #include <QMainWindow>
 #include <QStringList>
 #include <QVector>
-#include <memory>
+#include <limits>
 
 class QListWidget;
 class QLabel;
 class QComboBox;
+class QCheckBox;
 class QLineEdit;
+class QPlainTextEdit;
 class ImageView;
+class Segmentation3DView;
 class QListWidgetItem;
 class QDragEnterEvent;
 class QDropEvent;
@@ -20,13 +30,9 @@ class QPoint;
 class QPushButton;
 class QSlider;
 class QStackedWidget;
-class QTabWidget;
 class QSpinBox;
 class QResizeEvent;
-
-namespace Ui {
-class MainWindow;
-}
+class QFrame;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -55,6 +61,14 @@ private slots:
     void doLinearStretch();
     void doEqualize();
     void doHistMatch();
+    void importSegFile();
+    void updateDicomSliceIndex(int index);
+    void updateDicomWindowWidth(int value);
+    void updateDicomWindowCenter(int value);
+    void runDicomSegmentation();
+    void clearSegmentationSeeds();
+    void updateSegmentationControls();
+    void clearLoadedSeg();
     void loadNoiseExperimentImage();
     void addNoiseToExperiment();
     void applyNoiseFilterToExperiment();
@@ -77,6 +91,12 @@ private slots:
     void resetProcessing();
 
 private:
+    enum class SeedEditMode {
+        Navigate,
+        Foreground,
+        Background
+    };
+
     void createUi();
     QWidget* createExperimentPage();
     QWidget* createNoiseExperimentPage();
@@ -98,30 +118,37 @@ private:
     void refreshWorkbenchImages();
     void updateProcessingStatus(const QString& message = QString());
     void updateParameterStatus();
+    void switchToDicomMode(bool enabled);
+    void updateDicomViews();
+    void loadDicomSeries(const QString& path);
+    void applyDicomAction(const QString& actionName);
+    QVector<QImage> currentDicomProcessingInput() const;
+    void rebuildSegmentationPreview();
+    void invalidateSegmentationSurfaceCache();
+    void refreshSegmentationSurfaceCache();
+    void scheduleSegmentationSurfaceBuild();
+    void applySegmentationSurfaceResult(const SegmentationSurfaceData& surface, int generation, bool finalResult);
+    void updateSegmentationSurfaceView();
+    void clearSeedHistory();
+    void pushSeedHistorySnapshot(const QVector<SegmentationSeedPoint>& seeds);
+    void applyCurrentSeedHistory(const QString& message = QString());
+    bool canUndoSeedHistory() const;
+    bool canRedoSeedHistory() const;
+    bool isSeedEditingEnabled() const;
+    void appendSeedPoint(const SegmentationSeedPoint& seed);
+    QImage buildCoronalMaskSlice() const;
+    QImage buildSagittalMaskSlice() const;
+    bool findSegmentationCentroid(int* outX, int* outY, int* outZ) const;
+    int findBestSegmentationAxialSlice() const;
+    QString segmentationDebugSummary() const;
+    void onSliceNavigationChanged(const SliceNavigationController::State& state);
     bool isDropOnOriginalView(const QPoint& windowPos) const;
     bool isSupportedImageFile(const QString& filePath) const;
+    bool isSupportedDicomFile(const QString& filePath) const;
     QImage applyFilter(const QImage& img, const QString& filterName) const;
     QImage convolve(const QImage& img, const QVector<float>& kernel, float divisor, float bias = 0.0f) const;
-    QImage addSaltPepperNoise(const QImage& img, double density) const;
-    QImage addImpulseNoise(const QImage& img, double density) const;
-    QImage meanFilter(const QImage& img, int kernelSize) const;
-    QImage medianFilter(const QImage& img, int kernelSize) const;
-    QImage maxFilter(const QImage& img, int kernelSize) const;
-    QImage sobelEdgeDetect(const QImage& img, int kernelSize, int threshold) const;
-    QImage prewittEdgeDetect(const QImage& img, int kernelSize, int threshold) const;
-    QImage laplacianEdgeDetect(const QImage& img, int kernelSize, int threshold) const;
-    QImage step1_originalImage(const QImage& img) const;
-    QImage step2_laplacianProcess(const QImage& img) const;
-    QImage step3_sharpenImage(const QImage& original, const QImage& laplacian) const;
-    QImage step4_sobelProcess(const QImage& img) const;
-    QImage step5_meanFilterGradient(const QImage& sobel) const;
-    QImage step6_maskImage(const QImage& sharpened, const QImage& gradient) const;
-    QImage step7_addOriginalAndMask(const QImage& original, const QImage& mask) const;
-    QImage step8_gammaTransform(const QImage& enhanced, double gamma = 0.8) const;
     static int clampToByte(int value);
-    QImage loadGrayscaleImageFromFile(const QString& filePath, QString* errorMessage = nullptr) const;
-
-    std::unique_ptr<Ui::MainWindow> ui;
+    QImage currentDisplayImage() const;
 
     QString m_currentFolder;
     QString m_currentFile;
@@ -137,19 +164,44 @@ private:
     const double m_zoomStep = 0.01;
 
     QListWidget* m_fileList = nullptr;
-    QLabel* m_infoLabel = nullptr;
+    QPlainTextEdit* m_infoLabel = nullptr;
     QLabel* m_histogramLabel = nullptr;
     QLabel* m_folderLabel = nullptr;
     QLabel* m_zoomLabel = nullptr;
-    QLabel* m_previewHint = nullptr;
     QLabel* m_chainLabel = nullptr;
     QLabel* m_parameterLabel = nullptr;
     QComboBox* m_chainCombo = nullptr;
     QComboBox* m_parameterCombo = nullptr;
     QComboBox* m_filterCombo = nullptr;
+    QStackedWidget* m_viewModeStack = nullptr;
+    QWidget* m_standardViewPage = nullptr;
+    QWidget* m_dicomViewPage = nullptr;
     ImageView* m_imageView = nullptr;
     ImageView* m_resultView = nullptr;
-    QTabWidget* m_mainTabs = nullptr;
+    ImageView* m_axialView = nullptr;
+    ImageView* m_coronalView = nullptr;
+    ImageView* m_sagittalView = nullptr;
+    Segmentation3DView* m_volumeView = nullptr;
+    QSlider* m_axialSlider = nullptr;
+    QSlider* m_coronalSlider = nullptr;
+    QSlider* m_sagittalSlider = nullptr;
+    QSlider* m_windowWidthSlider = nullptr;
+    QSlider* m_windowCenterSlider = nullptr;
+    QLabel* m_windowWidthValueLabel = nullptr;
+    QLabel* m_windowCenterValueLabel = nullptr;
+    QComboBox* m_dicomProcessingScopeCombo = nullptr;
+    QComboBox* m_dicomProcessingTargetCombo = nullptr;
+    QComboBox* m_segmentationMethodCombo = nullptr;
+    QComboBox* m_seedModeCombo = nullptr;
+    QSlider* m_segmentationThresholdSlider = nullptr;
+    QSlider* m_segmentationToleranceSlider = nullptr;
+    QLabel* m_segmentationThresholdValueLabel = nullptr;
+    QLabel* m_segmentationToleranceValueLabel = nullptr;
+    QStackedWidget* m_segmentationPanelStack = nullptr;
+    QWidget* m_algorithmSegmentationPage = nullptr;
+    QWidget* m_segInfoPage = nullptr;
+    QLabel* m_segInfoLabel = nullptr;
+    QCheckBox* m_showSegmentationCheck = nullptr;
     QListWidget* m_experimentList = nullptr;
     QStackedWidget* m_experimentStackedWidget = nullptr;
     QLabel* m_experimentStatusLabel = nullptr;
@@ -248,5 +300,34 @@ private:
     double m_lastRestorationMotionT = 1.0;
     double m_lastRestorationCutoff = 30.0;
     double m_lastRestorationWienerK = 0.05;
+
+    bool m_dicomMode = false;
+    DicomSeriesData m_dicomSeries;
+    QVector<QImage> m_windowedSlices;
+    double m_cachedWindowWidth = -1.0;
+    double m_cachedWindowCenter = std::numeric_limits<double>::lowest();
+    QVector<QImage> m_dicomProcessedSlices;
+    QVector<QImage> m_dicomSegmentationInputSlices;
+    QVector<QImage> m_segmentationMaskSlices;
+    SegmentationSurfaceData m_segmentationSurfaceCache;
+    bool m_segmentationSurfaceDirty = true;
+    bool m_segmentationSurfaceFinalReady = false;
+    int m_segmentationSurfaceGeneration = 0;
+    QFutureWatcher<SegmentationSurfaceData>* m_segmentationPreviewWatcher = nullptr;
+    QFutureWatcher<SegmentationSurfaceData>* m_segmentationFullWatcher = nullptr;
+    QVector<SegmentationSeedPoint> m_segmentationSeeds;
+    QVector<QVector<SegmentationSeedPoint>> m_seedHistory;
+    int m_seedHistoryIndex = -1;
+    SeedEditMode m_seedEditMode = SeedEditMode::Navigate;
+    DicomSegData m_loadedSegData;
+    int m_dicomAxialIndex = 0;
+    int m_dicomCoronalIndex = 0;
+    int m_dicomSagittalIndex = 0;
+    double m_dicomWindowWidth = 400.0;
+    double m_dicomWindowCenter = 40.0;
+    SegmentationMethod m_segmentationMethod = SegmentationMethod::Threshold;
+    SegmentationParams m_segmentationParams;
+    bool m_showSegmentation = true;
+    SliceNavigationController* m_sliceNavigationController = nullptr;
 };
 
